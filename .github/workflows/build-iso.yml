@@ -23,21 +23,25 @@ jobs:
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
-          apt-get update
-          apt-get install -y --no-install-recommends \
-            git ca-certificates live-build xorriso squashfs-tools \
-            grub-pc-bin grub-efi-amd64-bin grub-common mtools dosfstools \
-            syslinux-common isolinux curl jq
-          lb --version || true
+          set -o pipefail
+          mkdir -p "$GITHUB_WORKSPACE/logs"
+          apt-get update 2>&1 | tee "$GITHUB_WORKSPACE/logs/setup.log"
+          apt-get install -y --no-install-recommends git ca-certificates live-build xorriso squashfs-tools grub-pc-bin grub-efi-amd64-bin mtools dosfstools syslinux-common isolinux 2>&1 | tee -a "$GITHUB_WORKSPACE/logs/setup.log"
+          lb --version 2>&1 | tee -a "$GITHUB_WORKSPACE/logs/setup.log"
 
       - uses: actions/checkout@v4
+
+      - name: Configurar la imagen
+        working-directory: iso
+        run: |
+          set -o pipefail
+          sh auto/config 2>&1 | tee "$GITHUB_WORKSPACE/logs/config.log"
 
       - name: Compilar la ISO
         working-directory: iso
         run: |
           set -o pipefail
-          sh auto/config
-          lb build 2>&1 | tee build.log
+          lb build 2>&1 | tee "$GITHUB_WORKSPACE/logs/build.log"
 
       - name: Renombrar la imagen
         run: |
@@ -45,37 +49,49 @@ jobs:
           ls -lh *.iso
           mv -f binary-hybrid.iso e6400-blackhole-matrix-amd64.iso 2>/dev/null || mv -f *.iso e6400-blackhole-matrix-amd64.iso
 
-      - name: Subir artefacto
+      - name: Subir artefacto ISO
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: e6400-blackhole-matrix-amd64
           path: iso/e6400-blackhole-matrix-amd64.iso
+          if-no-files-found: ignore
 
-      - name: Publicar release con la ISO
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: iso-${{ github.run_number }}
-          name: E6400 Black Hole Matrix ISO (build ${{ github.run_number }})
-          files: iso/e6400-blackhole-matrix-amd64.iso
-
-      - name: Subir log si fallo
-        if: failure()
+      - name: Subir logs
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: build-log-run-${{ github.run_number }}
-          path: iso/build.log
+          name: logs
+          path: logs/
+          if-no-files-found: ignore
+
+  report:
+    needs: build
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar logs
+        uses: actions/download-artifact@v4
+        with:
+          name: logs
+          path: logs
+        continue-on-error: true
 
       - name: Reportar fallo en un issue
-        if: failure()
         env:
           GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          RUNN: ${{ github.run_number }}
         run: |
-          tail -c 3500 iso/build.log > /tmp/tail.txt 2>/dev/null || echo "sin build.log" > /tmp/tail.txt
-          jq -n --rawfile b /tmp/tail.txt '{title: ("build-iso fallo en el run " + env.RUNN), body: ("Log de live-build (ultimas lineas):\n\n```\n" + $b + "\n```")}' > /tmp/issue.json
-          curl -sS -X POST \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/$REPO/issues" \
-            -d @/tmp/issue.json || true
+          {
+            echo "Fallo el build de la ISO (run ${{ github.run_number }}, commit ${{ github.sha }})."
+            echo
+            for f in logs/setup.log logs/config.log logs/build.log; do
+              if [ -f "$f" ]; then
+                echo "### $f (ultimas 100 lineas)"
+                echo \`\`\`
+                tail -n 100 "$f"
+                echo \`\`\`
+                echo
+              fi
+            done
+          } > body.md
+          gh issue create --repo "${{ github.repository }}" --title "build-iso fallo en el run ${{ github.run_number }}" --body-file body.md

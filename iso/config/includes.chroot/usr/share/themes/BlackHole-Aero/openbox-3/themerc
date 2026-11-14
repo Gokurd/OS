@@ -1,0 +1,60 @@
+border.width: 1
+padding.width: 6
+padding.height: 4
+window.handle.width: 0
+window.client.padding.width: 4
+window.label.text.justify: Left
+window.active.border.color: #2cff7a
+window.inactive.border.color: #0e3a20
+window.active.client.color: #07210f
+window.inactive.client.color: #04120a
+window.active.title.separator.color: #2cff7a
+window.inactive.title.separator.color: #0e3a20
+window.active.title.bg: Flat Gradient SplitVertical
+window.active.title.bg.color: #2a7a4a
+window.active.title.bg.colorTo: #124a2a
+window.active.title.bg.color.splitTo: #0a3a1f
+window.active.title.bg.colorTo.splitTo: #03140a
+window.inactive.title.bg: Flat Gradient SplitVertical
+window.inactive.title.bg.color: #17402a
+window.inactive.title.bg.colorTo: #0b2616
+window.inactive.title.bg.color.splitTo: #06180e
+window.inactive.title.bg.colorTo.splitTo: #020a05
+window.active.label.bg: Parentrelative
+window.inactive.label.bg: Parentrelative
+window.active.label.text.color: #eafff1
+window.inactive.label.text.color: #7fb08f
+window.active.label.text.font: shadow=y:shadowtint=60:shadowoffset=1
+window.active.button.unpressed.bg: Parentrelative
+window.active.button.unpressed.image.color: #eafff1
+window.active.button.hover.bg: Flat Gradient Vertical
+window.active.button.hover.bg.color: #3dff8a
+window.active.button.hover.bg.colorTo: #0f8a3e
+window.active.button.hover.image.color: #02140a
+window.active.button.pressed.bg: Flat Solid
+window.active.button.pressed.bg.color: #0f8a3e
+window.active.button.pressed.image.color: #ffffff
+window.inactive.button.unpressed.bg: Parentrelative
+window.inactive.button.unpressed.image.color: #7fb08f
+menu.border.color: #2cff7a
+menu.border.width: 1
+menu.title.bg: Flat Gradient Vertical
+menu.title.bg.color: #2a7a4a
+menu.title.bg.colorTo: #0a3a1f
+menu.title.text.color: #ffffff
+menu.items.bg: Flat Solid
+menu.items.bg.color: #04170c
+menu.items.text.color: #d8ffe4
+menu.items.disabled.text.color: #4c7a5a
+menu.items.active.bg: Flat Gradient Vertical
+menu.items.active.bg.color: #2a7a4a
+menu.items.active.bg.colorTo: #145a30
+menu.items.active.text.color: #ffffff
+osd.border.color: #2cff7a
+osd.bg: Flat Solid
+osd.bg.color: #04170c
+osd.label.text.color: #d8ffe4
+osd.hilight.bg: Flat Solid
+osd.hilight.bg.color: #2a7a4a
+osd.unhilight.bg: Flat Solid
+osd.unhilight.bg.color: #0b2b17

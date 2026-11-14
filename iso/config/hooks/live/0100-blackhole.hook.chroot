@@ -1,0 +1,8 @@
+#!/bin/sh
+set -e
+# Tema BlackHole-Aero como tema de Openbox del sistema
+sed -i '/<theme>/{n;s|<name>[^<]*</name>|<name>BlackHole-Aero</name>|}' /etc/xdg/openbox/rc.xml
+sed -i 's|<titlelayout>[^<]*</titlelayout>|<titlelayout>LIMC</titlelayout>|' /etc/xdg/openbox/rc.xml || true
+chmod 755 /usr/local/bin/blackhole.py /usr/local/bin/juego
+# Fondo y orbe pregenerados para el usuario del live
+HOME=/etc/skel python3 /usr/local/bin/blackhole.py

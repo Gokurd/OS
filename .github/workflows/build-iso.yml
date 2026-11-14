@@ -1,0 +1,58 @@
+name: build-iso
+
+on:
+  push:
+    paths:
+      - iso/**
+      - .github/workflows/build-iso.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Instalar herramientas de compilacion
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends live-build xorriso squashfs-tools grub-pc-bin grub-efi-amd64-bin mtools dosfstools syslinux-common isolinux
+
+      - name: Compilar la ISO
+        working-directory: iso
+        run: |
+          set -o pipefail
+          sudo lb clean --all >/dev/null 2>&1 || true
+          sh auto/config
+          sudo lb build 2>&1 | tee build.log
+
+      - name: Renombrar la imagen
+        run: |
+          cd iso
+          ls -lh *.iso
+          mv -f binary-hybrid.iso e6400-blackhole-matrix-amd64.iso 2>/dev/null || mv -f *.iso e6400-blackhole-matrix-amd64.iso
+
+      - name: Subir artefacto
+        uses: actions/upload-artifact@v4
+        with:
+          name: e6400-blackhole-matrix-amd64
+          path: iso/e6400-blackhole-matrix-amd64.iso
+
+      - name: Publicar release con la ISO
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: iso-${{ github.run_number }}
+          name: E6400 Black Hole Matrix ISO (build ${{ github.run_number }})
+          files: iso/e6400-blackhole-matrix-amd64.iso
+
+      - name: Reportar fallo en un issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tail -c 4000 iso/build.log > /tmp/logtail.txt 2>/dev/null || echo sin build.log > /tmp/logtail.txt
+          gh issue create --repo ${{ github.repository }} --title build-iso fallo en el run ${{ github.run_number }} --body-file /tmp/logtail.txt || true

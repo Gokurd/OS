@@ -1,0 +1,5 @@
+#!/bin/sh
+# Modo juego: apaga el compositor, lanza el juego y reactiva picom al salir.
+pkill picom
+"$@"
+picom -b --config ~/.config/picom.conf

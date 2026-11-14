@@ -1,0 +1,13 @@
+linux-image-amd64
+sudo
+xserver-xorg xserver-xorg-video-intel xserver-xorg-input-libinput x11-xserver-utils xinit dbus-x11
+libgl1-mesa-dri libglx-mesa0 mesa-utils
+openbox obconf tint2 jgmenu picom feh pcmanfm xterm
+fonts-open-sans fonts-dejavu-core papirus-icon-theme
+python3 python3-pil
+alsa-utils
+network-manager network-manager-gnome
+zram-tools earlyoom
+firefox-esr
+mpv i965-va-driver
+retroarch libretro-snes9x libretro-genesisplusgx libretro-nestopia libretro-gambatte libretro-mgba libretro-beetle-psx

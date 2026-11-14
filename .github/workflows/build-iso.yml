@@ -24,7 +24,7 @@ jobs:
           mkdir -p logs
           {
             sudo apt-get update
-            sudo apt-get install -y --no-install-recommends xorriso squashfs-tools grub-pc-bin grub-efi-amd64-bin mtools dosfstools syslinux-common isolinux curl debootstrap binutils
+            sudo apt-get install -y --no-install-recommends xorriso squashfs-tools grub-pc-bin grub-efi-amd64-bin mtools dosfstools syslinux-common isolinux curl debootstrap binutils debian-archive-keyring
             LB_DEB=$(curl -s http://deb.debian.org/debian/pool/main/l/live-build/ | grep -o 'live-build_[^"]*_all\.deb' | sort -u | sort -V | tail -n 1)
             LB_DEB=${LB_DEB//%2b/+}
             if [ -z "$LB_DEB" ]; then echo "ERROR: no se encontro el paquete live-build en el pool"; exit 1; fi

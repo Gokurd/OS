@@ -1,0 +1,110 @@
+name: build-kernel
+
+on:
+  push:
+    paths:
+      - 'remaster/kernel-e6400.config'
+      - '.github/workflows/build-kernel.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Instalar dependencias de compilacion
+        run: |
+          set -e
+          sudo apt-get update 2>&1 | tail -3
+          sudo apt-get install -y build-essential libncurses-dev bison flex \
+            libssl-dev libelf-dev bc dwarves fakeroot curl cpio kmod zstd 2>&1 | tail -5
+
+      - name: Descargar fuente del kernel 6.6 LTS
+        run: |
+          set -e
+          ver=$(curl -fsSL https://cdn.kernel.org/pub/linux/kernel/v6.x/ \
+                 | grep -o 'linux-6\.6\.[0-9]\+\.tar\.xz' | sort -V | tail -1)
+          echo "Version elegida: $ver"
+          [ -n "$ver" ] || { echo "No se pudo determinar la version 6.6.x"; exit 1; }
+          echo "KVER=${ver%.tar.xz}" >> "$GITHUB_ENV"
+          curl -fL --retry 3 -o /mnt/"$ver" "https://cdn.kernel.org/pub/linux/kernel/v6.x/$ver"
+          tar -xf /mnt/"$ver" -C /mnt
+          ls -d /mnt/linux-6.6.*
+
+      - name: Configurar kernel a la medida E6400
+        shell: bash
+        run: |
+          set -e
+          cd /mnt/"$KVER"
+          make x86_64_defconfig
+          ./scripts/kconfig/merge_config.sh -m .config "$GITHUB_WORKSPACE/remaster/kernel-e6400.config"
+          make olddefconfig
+          # Verificaciones clave del perfil E6400
+          for opt in CONFIG_DRM_I915=y CONFIG_SQUASHFS=y CONFIG_PREEMPT=y \
+                     CONFIG_E1000E=y CONFIG_ZRAM=m CONFIG_DEBUG_INFO_NONE=y; do
+            k="${opt%%=*}"; v="${opt#*=}"
+            grep -q "^${k}=${v}$" .config || { echo "FALTA $opt"; grep "$k" .config || true; exit 1; }
+          done
+          echo "Configuracion E6400 verificada."
+
+      - name: Compilar kernel y paquetes .deb
+        shell: bash
+        run: |
+          set -e
+          cd /mnt/"$KVER"
+          sudo make -j"$(nproc)" bindeb-pkg KDEB_PKGVERSION="${KVER#linux-}-blackhole1" \
+            2>&1 | tee ci-kernel.log | tail -40
+          ls -la /mnt/*.deb
+
+      - name: Publicar kernel como release
+        if: success()
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: kernel-${{ github.run_number }}
+          name: Kernel a la medida E6400 (${{ env.KVER }}-blackhole-e6400)
+          body: |
+            Kernel Linux compilado a la medida del Dell Latitude E6400
+            (Core 2 Duo P8400, GMA 4500MHD, 2 GiB DDR2, BIOS Legacy A14).
+
+            Instalar en Black Hole Linux (tras instalar al disco):
+              sudo apt install ./linux-image-*-blackhole-e6400_*.deb ./linux-headers-*-blackhole-e6400_*.deb
+              sudo blackhole firstboot   (o update-grub si ya hiciste firstboot)
+
+            El kernel Live de la ISO sigue siendo el de Bodhi (pareja vmlinuz/initrd
+            original); este kernel se usa en el sistema instalado.
+          files: |
+            /mnt/linux-image-*.deb
+            /mnt/linux-headers-*.deb
+            /mnt/linux-libc-dev*.deb
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Subir log de compilacion
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-kernel-log-r${{ github.run_number }}
+          path: ci-kernel.log
+          if-no-files-found: ignore
+
+      - name: Abrir issue si fallo (con cola del log)
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          {
+            echo "Fallo el build-kernel (run ${{ github.run_number }}, commit ${{ github.sha }})."
+            echo ""
+            echo "### ci-kernel.log (ultimas 150 lineas)"
+            echo '```'
+            tail -n 150 ci-kernel.log 2>/dev/null || echo "(sin ci-kernel.log: fallo antes de compilar)"
+            echo '```'
+          } > issue-body.md
+          gh issue create --title "build-kernel fallo en el run ${{ github.run_number }}" --body-file issue-body.md || true

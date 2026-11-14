@@ -7,9 +7,14 @@
 #   * write_matrix_look(): sesion Openbox "Windows Vista + Black Hole Matrix"
 #     (tint2 con orbe de Inicio verde, jgmenu, picom, feh) instalada JUNTO a
 #     Moksha; Moksha sigue siendo la sesion por defecto del remaster.
+#   * Al final instala el arranque tipo Zorin (bh-bootlook.sh: splash Plymouth
+#     "BLACK HOLE" en verde, iconos generados y fundido al escritorio).
 # ==============================================================================
 
 BH_MATRIX_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+
+# Modulo de arranque tipo Zorin (splash BLACK HOLE + iconos + fundido)
+source "$BH_MATRIX_DIR/bh-bootlook.sh"
 
 generate_blackhole_assets() {
     step "Assets Black Hole (splash + wallpaper) por codigo, si faltan"
@@ -287,6 +292,9 @@ SESSION
         chroot_run env HOME=/etc/skel python3 /usr/local/bin/blackhole-wallpaper --user \
             || warn "No se pudo pregenerar el fondo/orbe del skel."
     fi
+
+    # --- Arranque tipo Zorin: splash BLACK HOLE + iconos + fundido ---
+    write_bootlook
 
     log "Sesion Openbox BlackHole-Aero instalada (elige 'Openbox (BlackHole-Aero)' en el gestor de sesion)."
 }

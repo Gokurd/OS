@@ -21,18 +21,18 @@ jobs:
 
       - name: Sintaxis de los modulos (fallo rapido y claro)
         run: |
-          set -e
           ok=0
           for f in remaster/*.sh; do
-            if bash -n "$f"; then echo "OK: $f"; else echo "ERROR DE SINTAXIS: $f"; bash -n "$f"; ok=1; fi
+            if bash -n "$f"; then echo "OK: $f" | tee -a ci.log; else echo "ERROR DE SINTAXIS: $f" | tee -a ci.log; bash -n "$f" 2>&1 | tee -a ci.log; ok=1; fi
           done
+          python3 -m py_compile remaster/generate-assets.py && echo "OK: generate-assets.py" | tee -a ci.log || ok=1
           exit $ok
 
       - name: Instalar herramientas del constructor
         run: |
           set -e
-          sudo apt-get update 2>&1 | tail -5
-          sudo apt-get install -y xorriso squashfs-tools python3-pil curl ca-certificates 2>&1 | tail -10
+          sudo apt-get update 2>&1 | tail -3 | tee -a ci.log
+          sudo apt-get install -y xorriso squashfs-tools python3-pil curl ca-certificates fonts-dejavu-core 2>&1 | tail -8 | tee -a ci.log
 
       - name: Descargar ISO base Bodhi 7.0.0 amd64
         run: |
@@ -46,23 +46,23 @@ jobs:
           ok=0
           for u in "${urls[@]}"; do
             for i in 1 2 3; do
-              echo "== intento $i con $u =="
-              if curl -fL -A "$UA" --retry 2 --connect-timeout 25 -o /mnt/bodhi-7.0.0-64.iso "$u"; then
+              echo "== intento $i con $u ==" | tee -a ci.log
+              if curl -fL -A "$UA" --retry 2 --connect-timeout 25 -o /mnt/bodhi-7.0.0-64.iso "$u" 2>>ci.log; then
                 size=$(stat -c%s /mnt/bodhi-7.0.0-64.iso 2>/dev/null || echo 0)
-                echo "tamano descargado: $size bytes"
+                echo "tamano descargado: $size bytes" | tee -a ci.log
                 if [ "$size" -gt 1000000000 ]; then ok=1; break 2; fi
-                echo "archivo demasiado pequeno (probable pagina HTML); reintento"
+                echo "archivo demasiado pequeno (probable pagina HTML); reintento" | tee -a ci.log
               else
-                echo "curl fallo (codigo $?)"
+                echo "curl fallo (codigo $?)" | tee -a ci.log
               fi
               rm -f /mnt/bodhi-7.0.0-64.iso
               sleep 5
             done
           done
-          [ "$ok" = 1 ] || { echo "No se pudo descargar la ISO base"; exit 1; }
-          ls -la /mnt/bodhi-7.0.0-64.iso
-          xorriso -indev /mnt/bodhi-7.0.0-64.iso -ls /casper | head -20
-          xorriso -indev /mnt/bodhi-7.0.0-64.iso -ls / | head -30
+          [ "$ok" = 1 ] || { echo "No se pudo descargar la ISO base" | tee -a ci.log; exit 1; }
+          ls -la /mnt/bodhi-7.0.0-64.iso | tee -a ci.log
+          xorriso -indev /mnt/bodhi-7.0.0-64.iso -ls /casper 2>&1 | head -20 | tee -a ci.log
+          xorriso -indev /mnt/bodhi-7.0.0-64.iso -ls / 2>&1 | head -30 | tee -a ci.log
 
       - name: Construir remaster Black Hole Linux
         run: |
@@ -70,13 +70,13 @@ jobs:
           sudo env BH_WORK=/mnt/bh-work \
                    BH_OUTPUT=/mnt/e6400-blackhole-bodhi-amd64.iso \
                    bash remaster/blackhole-linux.sh \
-                   --base /mnt/bodhi-7.0.0-64.iso 2>&1 | tee build-remaster.log | tail -60
+                   --base /mnt/bodhi-7.0.0-64.iso 2>&1 | tee build-remaster.log | tee -a ci.log | tail -50
 
       - name: Resumen del producto
         if: success()
         run: |
-          ls -la /mnt/*.iso
-          sha256sum /mnt/e6400-blackhole-bodhi-amd64.iso | tee iso-sha256.txt
+          ls -la /mnt/*.iso | tee -a ci.log
+          sha256sum /mnt/e6400-blackhole-bodhi-amd64.iso | tee iso-sha256.txt | tee -a ci.log
 
       - name: Publicar ISO como release
         if: success()
@@ -88,18 +88,22 @@ jobs:
             Remaster de Bodhi Linux 7.0.0 amd64 para Dell Latitude E6400.
             Base: Ubuntu 22.04 LTS + Moksha + sesion Openbox (BlackHole-Aero).
             Kernel/initrd Live originales de Bodhi preservados.
+            Incluye: splash Plymouth BLACK HOLE (verde), iconos BlackHole,
+            fundido de entrada estilo Zorin, tint2 + orbe de Inicio + jgmenu.
 
             Verificar antes de flashear: sha256sum en el artefacto iso-sha256.
           files: /mnt/e6400-blackhole-bodhi-amd64.iso
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Subir log de construccion
+      - name: Subir log completo
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: build-remaster-log-r${{ github.run_number }}
-          path: build-remaster.log
+          path: |
+            ci.log
+            build-remaster.log
           if-no-files-found: ignore
 
       - name: Abrir issue si fallo (con cola del log)
@@ -110,9 +114,14 @@ jobs:
           {
             echo "Fallo el build-remaster (run ${{ github.run_number }}, commit ${{ github.sha }})."
             echo ""
-            echo "### build-remaster.log (ultimas 150 lineas)"
+            echo "### ci.log (ultimas 200 lineas)"
             echo '```'
-            tail -n 150 build-remaster.log 2>/dev/null || echo "(sin build-remaster.log: fallo antes de construir)"
+            tail -n 200 ci.log 2>/dev/null || echo "(sin ci.log)"
+            echo '```'
+            echo ""
+            echo "### build-remaster.log (ultimas 100 lineas)"
+            echo '```'
+            tail -n 100 build-remaster.log 2>/dev/null || echo "(sin build-remaster.log: fallo antes de construir)"
             echo '```'
             echo ""
             echo "### ls /mnt"

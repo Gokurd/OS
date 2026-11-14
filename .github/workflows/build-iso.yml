@@ -25,10 +25,11 @@ jobs:
           {
             sudo apt-get update
             sudo apt-get install -y --no-install-recommends xorriso squashfs-tools grub-pc-bin grub-efi-amd64-bin mtools dosfstools syslinux-common isolinux curl debootstrap binutils
-            LB_DEB=$(curl -s http://deb.debian.org/debian/pool/main/l/live-build/ | grep -o "live-build_[^"]*_all\.deb" | sort -u | sort -V | tail -n 1)
+            LB_DEB=$(curl -s http://deb.debian.org/debian/pool/main/l/live-build/ | grep -o 'live-build_[^"]*_all\.deb' | sort -u | sort -V | tail -n 1)
             LB_DEB=${LB_DEB//%2b/+}
+            if [ -z "$LB_DEB" ]; then echo "ERROR: no se encontro el paquete live-build en el pool"; exit 1; fi
             echo "Descargando: $LB_DEB"
-            curl -sO "http://deb.debian.org/debian/pool/main/l/live-build/$LB_DEB"
+            curl -fSO "http://deb.debian.org/debian/pool/main/l/live-build/$LB_DEB"
             sudo dpkg -i "$LB_DEB" || sudo apt-get -f install -y
             dpkg -l live-build | tail -n 1
           } 2>&1 | tee logs/setup.log

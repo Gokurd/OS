@@ -82,11 +82,6 @@ die()  { printf '%s[FAIL]%s %s\n' "$C_RED" "$C_RESET" "$*" >&2; exit 1; }
 step() { printf '\n%s==>%s %s\n' "$C_CYAN" "$C_RESET" "$*"; }
 have() { command -v "$1" >/dev/null 2>&1; }
 
-# Modulo opcional: look BlackHole-Aero + generacion automatica de assets.
-# Debe vivir junto a este script (remaster/matrix-look.sh).
-BH_MATRIX_LOOK="$SCRIPT_DIR/matrix-look.sh"
-[[ -f "$BH_MATRIX_LOOK" ]] && source "$BH_MATRIX_LOOK"
-
 usage() {
     cat <<USAGE
 ${BH_NAME} v${BH_VERSION} — Bodhi remaster for Dell Latitude E6400 (Matrix/Black Hole edition)
@@ -383,7 +378,6 @@ source "$SCRIPT_DIR/bh-theme.sh"
 source "$SCRIPT_DIR/bh-system.sh"
 source "$SCRIPT_DIR/bh-build-steps.sh"
 source "$SCRIPT_DIR/matrix-look.sh"
-}
 
 main() {
     parse_args "$@"

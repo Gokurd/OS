@@ -15,21 +15,23 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 120
-    container:
-      image: debian:bookworm
-      options: --privileged
     steps:
-      - name: Instalar herramientas de compilacion
-        env:
-          DEBIAN_FRONTEND: noninteractive
+      - uses: actions/checkout@v4
+
+      - name: Instalar live-build de Debian y herramientas
         run: |
           set -o pipefail
-          mkdir -p "$GITHUB_WORKSPACE/logs"
-          apt-get update 2>&1 | tee "$GITHUB_WORKSPACE/logs/setup.log"
-          apt-get install -y --no-install-recommends git ca-certificates live-build xorriso squashfs-tools grub-pc-bin grub-efi-amd64-bin mtools dosfstools syslinux-common isolinux 2>&1 | tee -a "$GITHUB_WORKSPACE/logs/setup.log"
-          lb --version 2>&1 | tee -a "$GITHUB_WORKSPACE/logs/setup.log"
-
-      - uses: actions/checkout@v4
+          mkdir -p logs
+          {
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends xorriso squashfs-tools grub-pc-bin grub-efi-amd64-bin mtools dosfstools syslinux-common isolinux curl debootstrap binutils
+            LB_DEB=$(curl -s http://deb.debian.org/debian/pool/main/l/live-build/ | grep -o "live-build_[^"]*_all\.deb" | sort -u | sort -V | tail -n 1)
+            LB_DEB=${LB_DEB//%2b/+}
+            echo "Descargando: $LB_DEB"
+            curl -sO "http://deb.debian.org/debian/pool/main/l/live-build/$LB_DEB"
+            sudo dpkg -i "$LB_DEB" || sudo apt-get -f install -y
+            dpkg -l live-build | tail -n 1
+          } 2>&1 | tee logs/setup.log
 
       - name: Configurar la imagen
         working-directory: iso
@@ -41,7 +43,7 @@ jobs:
         working-directory: iso
         run: |
           set -o pipefail
-          lb build 2>&1 | tee "$GITHUB_WORKSPACE/logs/build.log"
+          sudo lb build 2>&1 | tee "$GITHUB_WORKSPACE/logs/build.log"
 
       - name: Renombrar la imagen
         run: |

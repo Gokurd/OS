@@ -1,0 +1,89 @@
+name: build-remaster
+
+on:
+  push:
+    paths:
+      - 'remaster/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Instalar herramientas del constructor
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xorriso squashfs-tools python3-pil curl ca-certificates
+
+      - name: Descargar ISO base Bodhi 7.0.0 amd64
+        run: |
+          set -e
+          ok=0
+          for i in 1 2 3 4 5; do
+            echo "== Intento $i =="
+            if curl -fL --retry 3 --retry-delay 5 -o /mnt/bodhi-7.0.0-64.iso \
+                 "https://sourceforge.net/projects/bodhilinux/files/7.0.0/bodhi-7.0.0-64.iso/download"; then
+              ok=1; break
+            fi
+            rm -f /mnt/bodhi-7.0.0-64.iso
+            sleep 15
+          done
+          [ "$ok" = 1 ] || { echo "No se pudo descargar la ISO base"; exit 1; }
+          ls -la /mnt/bodhi-7.0.0-64.iso
+          xorriso -indev /mnt/bodhi-7.0.0-64.iso -ls /casper | head -20
+
+      - name: Construir remaster Black Hole Linux
+        run: |
+          set -o pipefail
+          sudo env BH_WORK=/mnt/bh-work \
+                   BH_OUTPUT=/mnt/e6400-blackhole-bodhi-amd64.iso \
+                   bash remaster/blackhole-linux.sh \
+                   --base /mnt/bodhi-7.0.0-64.iso 2>&1 | tee build-remaster.log
+
+      - name: Resumen del producto
+        if: success()
+        run: |
+          ls -la /mnt/*.iso
+          sha256sum /mnt/e6400-blackhole-bodhi-amd64.iso | tee iso-sha256.txt
+
+      - name: Publicar ISO como release
+        if: success()
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: remaster-${{ github.run_number }}
+          name: Black Hole Linux 8.0 ULTIMATE-E6400 (remaster r${{ github.run_number }})
+          body: |
+            Remaster de Bodhi Linux 7.0.0 amd64 para Dell Latitude E6400.
+            Base: Ubuntu 22.04 LTS + Moksha + sesion Openbox (BlackHole-Aero).
+            Kernel/initrd Live originales de Bodhi preservados.
+
+            Verificar antes de flashear: sha256sum en el artefacto iso-sha256.
+          files: /mnt/e6400-blackhole-bodhi-amd64.iso
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Subir log de construccion
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-remaster-log-r${{ github.run_number }}
+          path: build-remaster.log
+          if-no-files-found: ignore
+
+      - name: Abrir issue si fallo
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tail -n 150 build-remaster.log > failure-tail.txt || true
+          gh issue create \
+            --title "build-remaster fallo en el run ${{ github.run_number }}" \
+            --body-file failure-tail.txt || true

@@ -1,0 +1,5 @@
+xrdb -merge ~/.Xresources
+feh --bg-fill ~/.config/blackhole.png &
+picom -b --config ~/.config/picom.conf
+nm-applet &
+tint2 &

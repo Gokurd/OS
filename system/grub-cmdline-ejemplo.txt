@@ -1,0 +1,3 @@
+# Ejemplo de GRUB_CMDLINE_LINUX_DEFAULT ya estable (apartado 2.3 de la guía).
+# Sustituye por los parámetros que te hicieran falta en la escalera del 2.2.
+GRUB_CMDLINE_LINUX_DEFAULT='quiet mitigations=off transparent_hugepage=never zswap.enabled=0 nowatchdog'

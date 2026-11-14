@@ -1,0 +1,7 @@
+# /etc/default/zramswap — ZRAM para 2 GB de RAM
+ALGO=lz4
+PERCENT=50
+PRIORITY=100
+# Sube a PERCENT=75 si te quedas corto.
+# lz4 gasta poca CPU (mejor para emuladores en un Core 2 Duo sin AVX);
+# ALGO=zstd comprime más pero cuesta CPU: úsalo si navegas mucho y no juegas.

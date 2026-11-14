@@ -52,6 +52,14 @@ jobs:
           ls -lh *.iso
           mv -f binary-hybrid.iso e6400-blackhole-matrix-amd64.iso 2>/dev/null || mv -f *.iso e6400-blackhole-matrix-amd64.iso
 
+      - name: Publicar release con la ISO
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: iso-${{ github.run_number }}
+          name: E6400 Black Hole Matrix ISO (build ${{ github.run_number }})
+          body: ISO live de 64 bits (Debian bookworm) para Dell Latitude E6400 con look Windows Vista + Black Hole Matrix. Grabar en USB y arrancar en modo Legacy/BIOS.
+          files: iso/e6400-blackhole-matrix-amd64.iso
+
       - name: Subir artefacto ISO
         if: always()
         uses: actions/upload-artifact@v4

@@ -10,5 +10,5 @@ lb config noauto \
     --mirror-binary "http://deb.debian.org/debian" \
     --iso-application "E6400 Black Hole Matrix" \
     --iso-volume "E6400-BlackHole" \
-    --bootappend-live "boot=live components quiet splash mitigations=off transparent_hugepage=never zswap.enabled=0 nowatchdog" \
+    --bootappend-live "boot=live components mitigations=off transparent_hugepage=never zswap.enabled=0 nowatchdog" \
     "${@}"

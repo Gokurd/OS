@@ -1,0 +1,28 @@
+#!/bin/sh
+# Verificacion E6400 Black Hole Matrix (FASE 6 de la guia)
+echo "==============================================="
+echo " E6400 Black Hole Matrix - verificacion"
+echo "==============================================="
+echo "-- Kernel --"
+uname -r
+echo
+echo "-- Memoria (objetivo: <= 250 MB en reposo) --"
+free -m
+echo
+echo "-- ZRAM --"
+cat /proc/swaps
+echo
+echo "-- earlyoom --"
+systemctl is-active earlyoom || true
+echo
+echo "-- GPU y driver --"
+lspci -nnk | grep -A3 -i vga || true
+echo
+echo "-- Compositor picom --"
+pgrep -x picom >/dev/null && echo "activo" || echo "NO activo"
+echo
+echo "-- NetworkManager --"
+systemctl is-active NetworkManager || true
+echo
+echo "Pulsa Enter para salir..."
+read x

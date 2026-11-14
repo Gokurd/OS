@@ -3,6 +3,17 @@ set -e
 # Tema BlackHole-Aero como tema de Openbox del sistema
 sed -i '/<theme>/{n;s|<name>[^<]*</name>|<name>BlackHole-Aero</name>|}' /etc/xdg/openbox/rc.xml
 sed -i 's|<titlelayout>[^<]*</titlelayout>|<titlelayout>LIMC</titlelayout>|' /etc/xdg/openbox/rc.xml || true
-chmod 755 /usr/local/bin/blackhole.py /usr/local/bin/juego
+chmod 755 /usr/local/bin/blackhole.py /usr/local/bin/juego /usr/local/bin/verificar-e6400
+# Sesion Openbox visible para lightdm (el autologin del live la usa)
+if [ ! -e /usr/share/xsessions/openbox.desktop ]; then
+cat > /usr/share/xsessions/openbox.desktop <<'EOF'
+[Desktop Entry]
+Name=Openbox
+Comment=Sesion Openbox (Black Hole Matrix)
+Exec=openbox-session
+Type=Application
+Keywords=wm;windowmanager;
+EOF
+fi
 # Fondo y orbe pregenerados para el usuario del live
 HOME=/etc/skel python3 /usr/local/bin/blackhole.py

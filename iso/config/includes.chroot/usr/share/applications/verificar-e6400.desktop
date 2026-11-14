@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Verificar E6400
+Comment=Comprobacion de RAM, ZRAM, GPU y servicios
+Exec=xterm -e /usr/local/bin/verificar-e6400
+Icon=dialog-information
+Categories=System;Utility;

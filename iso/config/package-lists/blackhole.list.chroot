@@ -6,8 +6,10 @@ openbox obconf tint2 jgmenu picom feh pcmanfm xterm
 fonts-open-sans fonts-dejavu-core papirus-icon-theme
 python3 python3-pil
 alsa-utils
-network-manager network-manager-gnome
+network-manager network-manager-gnome policykit-1
 zram-tools earlyoom
+lightdm lightdm-gtk-greeter
+volumeicon-alsa desktop-file-utils shared-mime-info
 firefox-esr
 mpv i965-va-driver
 retroarch libretro-snes9x libretro-genesisplusgx libretro-nestopia libretro-gambatte libretro-mgba libretro-beetle-psx

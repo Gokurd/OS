@@ -1,3 +1,5 @@
+[![build-iso](https://github.com/Gokurd/OS/actions/workflows/build-iso.yml/badge.svg)](https://github.com/Gokurd/OS/actions/workflows/build-iso.yml)
+
 # E6400 · Black Hole Matrix
 
 Sistema ligero de 64 bits para el **Dell Latitude E6400** (Core 2 Duo, 2 GB DDR2, BIOS A14 Legacy): base tipo Bodhi 5.1.0, kernel estable, ZRAM + earlyoom y un escritorio Openbox con look **«Windows Vista + Black Hole Matrix»**: cristal oscuro verde, orbe de Inicio, lluvia Matrix y agujero negro.

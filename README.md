@@ -67,3 +67,16 @@ Cierra sesión y vuelve a entrar (`startx` en tty1). El fondo y el orbe se gener
 ## Licencia
 
 MIT. Los temas y scripts son de uso libre.
+## ISO compilada por CI
+
+Cada push en `iso/**` compila una ISO live de Debian bookworm 64-bit con todo integrado (escritorio Openbox con autologin, look Black Hole Matrix, ZRAM + earlyoom, Retroarch) y la publica en [Releases](https://github.com/Gokurd/OS/releases). Descarga el ultimo asset `e6400-blackhole-matrix-amd64.iso`, grábala en USB y arranca en modo Legacy/BIOS.
+
+## Verificación en el live (FASE 6)
+
+En el escritorio del live usa el lanzador **Verificar E6400** del menú, o ejecuta en una terminal:
+
+```sh
+verificar-e6400
+```
+
+Comprueba kernel, RAM usada en reposo (objetivo: <= 250 MB), ZRAM activa, earlyoom, driver de GPU y compositor picom.

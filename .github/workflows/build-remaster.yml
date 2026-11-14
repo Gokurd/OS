@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - 'remaster/**'
+      - '.github/workflows/build-remaster.yml'
   workflow_dispatch:
 
 permissions:
@@ -18,27 +19,50 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Sintaxis de los modulos (fallo rapido y claro)
+        run: |
+          set -e
+          ok=0
+          for f in remaster/*.sh; do
+            if bash -n "$f"; then echo "OK: $f"; else echo "ERROR DE SINTAXIS: $f"; bash -n "$f"; ok=1; fi
+          done
+          exit $ok
+
       - name: Instalar herramientas del constructor
         run: |
-          sudo apt-get update
-          sudo apt-get install -y xorriso squashfs-tools python3-pil curl ca-certificates
+          set -e
+          sudo apt-get update 2>&1 | tail -5
+          sudo apt-get install -y xorriso squashfs-tools python3-pil curl ca-certificates 2>&1 | tail -10
 
       - name: Descargar ISO base Bodhi 7.0.0 amd64
         run: |
           set -e
+          UA="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+          urls=(
+            "https://downloads.sourceforge.net/project/bodhilinux/7.0.0/bodhi-7.0.0-64.iso"
+            "https://sourceforge.net/projects/bodhilinux/files/7.0.0/bodhi-7.0.0-64.iso/download"
+            "https://master.dl.sourceforge.net/project/bodhilinux/7.0.0/bodhi-7.0.0-64.iso?viasf=1"
+          )
           ok=0
-          for i in 1 2 3 4 5; do
-            echo "== Intento $i =="
-            if curl -fL --retry 3 --retry-delay 5 -o /mnt/bodhi-7.0.0-64.iso \
-                 "https://sourceforge.net/projects/bodhilinux/files/7.0.0/bodhi-7.0.0-64.iso/download"; then
-              ok=1; break
-            fi
-            rm -f /mnt/bodhi-7.0.0-64.iso
-            sleep 15
+          for u in "${urls[@]}"; do
+            for i in 1 2 3; do
+              echo "== intento $i con $u =="
+              if curl -fL -A "$UA" --retry 2 --connect-timeout 25 -o /mnt/bodhi-7.0.0-64.iso "$u"; then
+                size=$(stat -c%s /mnt/bodhi-7.0.0-64.iso 2>/dev/null || echo 0)
+                echo "tamano descargado: $size bytes"
+                if [ "$size" -gt 1000000000 ]; then ok=1; break 2; fi
+                echo "archivo demasiado pequeno (probable pagina HTML); reintento"
+              else
+                echo "curl fallo (codigo $?)"
+              fi
+              rm -f /mnt/bodhi-7.0.0-64.iso
+              sleep 5
+            done
           done
           [ "$ok" = 1 ] || { echo "No se pudo descargar la ISO base"; exit 1; }
           ls -la /mnt/bodhi-7.0.0-64.iso
           xorriso -indev /mnt/bodhi-7.0.0-64.iso -ls /casper | head -20
+          xorriso -indev /mnt/bodhi-7.0.0-64.iso -ls / | head -30
 
       - name: Construir remaster Black Hole Linux
         run: |
@@ -46,7 +70,7 @@ jobs:
           sudo env BH_WORK=/mnt/bh-work \
                    BH_OUTPUT=/mnt/e6400-blackhole-bodhi-amd64.iso \
                    bash remaster/blackhole-linux.sh \
-                   --base /mnt/bodhi-7.0.0-64.iso 2>&1 | tee build-remaster.log
+                   --base /mnt/bodhi-7.0.0-64.iso 2>&1 | tee build-remaster.log | tail -60
 
       - name: Resumen del producto
         if: success()
@@ -78,12 +102,22 @@ jobs:
           path: build-remaster.log
           if-no-files-found: ignore
 
-      - name: Abrir issue si fallo
+      - name: Abrir issue si fallo (con cola del log)
         if: failure()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          tail -n 150 build-remaster.log > failure-tail.txt || true
-          gh issue create \
-            --title "build-remaster fallo en el run ${{ github.run_number }}" \
-            --body-file failure-tail.txt || true
+          {
+            echo "Fallo el build-remaster (run ${{ github.run_number }}, commit ${{ github.sha }})."
+            echo ""
+            echo "### build-remaster.log (ultimas 150 lineas)"
+            echo '```'
+            tail -n 150 build-remaster.log 2>/dev/null || echo "(sin build-remaster.log: fallo antes de construir)"
+            echo '```'
+            echo ""
+            echo "### ls /mnt"
+            echo '```'
+            ls -la /mnt 2>/dev/null | head -20
+            echo '```'
+          } > issue-body.md
+          gh issue create --title "build-remaster fallo en el run ${{ github.run_number }}" --body-file issue-body.md || true

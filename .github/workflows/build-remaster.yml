@@ -32,7 +32,7 @@ jobs:
         run: |
           set -e
           sudo apt-get update 2>&1 | tail -3 | tee -a ci.log
-          sudo apt-get install -y xorriso squashfs-tools python3-pil curl ca-certificates fonts-dejavu-core 2>&1 | tail -8 | tee -a ci.log
+          sudo apt-get install -y xorriso squashfs-tools zstd python3-pil curl ca-certificates fonts-dejavu-core 2>&1 | tail -8 | tee -a ci.log
 
       - name: Descargar ISO base Bodhi 7.0.0 amd64
         run: |

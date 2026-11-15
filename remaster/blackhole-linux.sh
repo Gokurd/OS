@@ -210,9 +210,17 @@ check_host() {
         have "$c" || missing+=("$c")
     done
     if [[ "$BH_SQUASH_COMP" = zstd ]]; then
-        local squash_help
-        squash_help="$(mksquashfs -help 2>&1 || true)"
-        grep -qi zstd <<<"$squash_help" || missing+=("mksquashfs con soporte zstd (o usa --compression xz)")
+        # Comprobacion funcional: la salida de "mksquashfs -help" no siempre
+        # lista los compresores; probamos a crear un squashfs zstd real.
+        local ztd zok=0
+        ztd="$(mktemp -d)" || ztd=""
+        if [[ -n "$ztd" ]]; then
+            mkdir -p "$ztd/probe" && printf 'probe\n' > "$ztd/probe/f" \
+                && mksquashfs "$ztd/probe" "$ztd/probe.squashfs" -comp zstd -noappend -no-progress -processors 1 >/dev/null 2>&1 \
+                && [[ -s "$ztd/probe.squashfs" ]] && zok=1
+            rm -rf "$ztd"
+        fi
+        ((zok)) || missing+=("mksquashfs con soporte zstd (o usa --compression xz)")
     fi
     if ((${#missing[@]})); then
         printf 'Faltan herramientas: ' >&2; printf '%s ' "${missing[@]}" >&2; printf '\n' >&2

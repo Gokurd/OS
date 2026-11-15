@@ -43,8 +43,13 @@ jobs:
           echo "Version elegida: $ver" | tee -a ci-kernel.log
           [ -n "$ver" ] || { echo "No se pudo determinar la version 6.6.x" | tee -a ci-kernel.log; exit 1; }
           echo "KVER=${ver%.tar.xz}" >> "$GITHUB_ENV"
-          curl -fL --retry 3 -o /mnt/"$ver" "https://cdn.kernel.org/pub/linux/kernel/v6.x/$ver" 2>>ci-kernel.log
-          tar -xf /mnt/"$ver" -C /mnt
+          # /mnt es de root: descargar en RUNNER_TEMP, mover con sudo y
+          # extraer con sudo; luego devolver la propiedad al runner para que
+          # make olddefconfig/bindeb-pkg puedan escribir sin fallos de permisos.
+          curl -fL --retry 3 -o "$RUNNER_TEMP/$ver" "https://cdn.kernel.org/pub/linux/kernel/v6.x/$ver" 2>>ci-kernel.log
+          sudo mv -f "$RUNNER_TEMP/$ver" /mnt/"$ver"
+          sudo tar -xf /mnt/"$ver" -C /mnt
+          sudo chown -R "$(id -u):$(id -g)" /mnt/linux-6.6.*
           ls -d /mnt/linux-6.6.* | tee -a ci-kernel.log
 
       - name: Configurar kernel a la medida E6400

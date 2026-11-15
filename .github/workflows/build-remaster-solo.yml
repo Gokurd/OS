@@ -1,0 +1,121 @@
+name: build-remaster-solo
+
+# Compila SOLO el script original del autor (solo/blackhole-linux.sh),
+# sin los modulos anadidos: remaster directo de Bodhi 7.0.0.
+
+on:
+  push:
+    paths:
+      - 'solo/**'
+      - '.github/workflows/build-remaster-solo.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Sintaxis del script
+        run: |
+          bash -n solo/blackhole-linux.sh && echo "OK: solo/blackhole-linux.sh" | tee -a ci.log
+
+      - name: Instalar herramientas del constructor
+        run: |
+          set -e
+          sudo apt-get update 2>&1 | tail -3 | tee -a ci.log
+          sudo apt-get install -y xorriso squashfs-tools python3-pil curl ca-certificates fonts-dejavu-core 2>&1 | tail -8 | tee -a ci.log
+
+      - name: Descargar ISO base Bodhi 7.0.0 amd64
+        run: |
+          set -e
+          UA="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+          urls=(
+            "https://archive.org/download/bodhi-7.0.0-64/bodhi-7.0.0-64.iso"
+            "https://downloads.sourceforge.net/project/bodhilinux/7.0.0/bodhi-7.0.0-64.iso"
+            "https://sourceforge.net/projects/bodhilinux/files/7.0.0/bodhi-7.0.0-64.iso/download"
+          )
+          ok=0
+          for u in "${urls[@]}"; do
+            for i in 1 2; do
+              echo "== intento $i con $u ==" | tee -a ci.log
+              if curl -fL -A "$UA" --retry 2 --connect-timeout 25 -o "$RUNNER_TEMP/bodhi-7.0.0-64.iso" "$u" 2>>ci.log; then
+                size=$(stat -c%s "$RUNNER_TEMP/bodhi-7.0.0-64.iso" 2>/dev/null || echo 0)
+                echo "tamano descargado: $size bytes" | tee -a ci.log
+                if [ "$size" -gt 1000000000 ]; then ok=1; break 2; fi
+                echo "archivo demasiado pequeno (probable pagina HTML); reintento" | tee -a ci.log
+              else
+                echo "curl fallo (codigo $?)" | tee -a ci.log
+              fi
+              rm -f "$RUNNER_TEMP/bodhi-7.0.0-64.iso"
+              sleep 5
+            done
+          done
+          [ "$ok" = 1 ] || { echo "No se pudo descargar la ISO base" | tee -a ci.log; exit 1; }
+          sudo mv -f "$RUNNER_TEMP/bodhi-7.0.0-64.iso" /mnt/bodhi-7.0.0-64.iso
+          ls -la /mnt/bodhi-7.0.0-64.iso | tee -a ci.log
+          xorriso -indev /mnt/bodhi-7.0.0-64.iso -ls /casper 2>&1 | head -20 | tee -a ci.log
+
+      - name: Construir ISO con el script original del autor
+        run: |
+          set -o pipefail
+          sudo env BH_WORK=/mnt/bh-work-solo \
+                   BH_OUTPUT=/mnt/e6400-blackhole-solo-amd64.iso \
+                   bash solo/blackhole-linux.sh \
+                   --base /mnt/bodhi-7.0.0-64.iso 2>&1 | tee build-solo.log | tee -a ci.log | tail -50
+
+      - name: Resumen del producto
+        if: success()
+        run: |
+          ls -la /mnt/*.iso | tee -a ci.log
+          sha256sum /mnt/e6400-blackhole-solo-amd64.iso | tee iso-sha256.txt | tee -a ci.log
+
+      - name: Publicar ISO como release
+        if: success()
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: solo-${{ github.run_number }}
+          name: Black Hole Linux v8.0 ULTIMATE-E6400 (script original del autor, r${{ github.run_number }})
+          body: |
+            ISO construida SOLO con el script original blackhole-linux-v8.0-e6400-matrix.sh
+            (remaster de Bodhi Linux 7.0.0 amd64 para Dell Latitude E6400).
+            Kernel/initrd Live originales de Bodhi preservados.
+          files: /mnt/e6400-blackhole-solo-amd64.iso
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Subir log completo
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-solo-log-r${{ github.run_number }}
+          path: |
+            ci.log
+            build-solo.log
+          if-no-files-found: ignore
+
+      - name: Abrir issue si fallo (con cola del log)
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          {
+            echo "Fallo el build-remaster-solo (run ${{ github.run_number }}, commit ${{ github.sha }})."
+            echo ""
+            echo "### build-solo.log (ultimas 150 lineas)"
+            echo '```'
+            tail -n 150 build-solo.log 2>/dev/null || echo "(sin build-solo.log: fallo antes de construir)"
+            echo '```'
+            echo ""
+            echo "### ci.log (ultimas 120 lineas)"
+            echo '```'
+            tail -n 120 ci.log 2>/dev/null || echo "(sin ci.log)"
+            echo '```'
+          } > issue-body.md
+          gh issue create --title "build-remaster-solo fallo en el run ${{ github.run_number }}" --body-file issue-body.md || true

@@ -38,15 +38,12 @@ jobs:
         run: |
           set -e
           UA="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
-          # SourceForge bloquea con 403 las IPs de los runners (Azure). Usamos
-          # espejos de SourceForge y un fallback a archive.org. Descargamos a
-          # $RUNNER_TEMP (escritible por el runner) y luego la movemos a /mnt.
+          # SourceForge devuelve 403 a las IPs de los runners (Azure). Primero
+          # archive.org (sin bloqueos), luego SourceForge como respaldo.
           urls=(
-            "https://netcologne.dl.sourceforge.net/project/bodhilinux/7.0.0/bodhi-7.0.0-64.iso?viasf=1"
-            "https://deac-riga.dl.sourceforge.net/project/bodhilinux/7.0.0/bodhi-7.0.0-64.iso?viasf=1"
-            "https://phoenixnap.dl.sourceforge.net/project/bodhilinux/7.0.0/bodhi-7.0.0-64.iso?viasf=1"
-            "https://astuteinternet.dl.sourceforge.net/project/bodhilinux/7.0.0/bodhi-7.0.0-64.iso?viasf=1"
-            "https://web.archive.org/web/2025id_/https://downloads.sourceforge.net/project/bodhilinux/7.0.0/bodhi-7.0.0-64.iso"
+            "https://archive.org/download/bodhi-7.0.0-64/bodhi-7.0.0-64.iso"
+            "https://downloads.sourceforge.net/project/bodhilinux/7.0.0/bodhi-7.0.0-64.iso"
+            "https://sourceforge.net/projects/bodhilinux/files/7.0.0/bodhi-7.0.0-64.iso/download"
           )
           ok=0
           for u in "${urls[@]}"; do

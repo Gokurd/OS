@@ -21,31 +21,37 @@ jobs:
 
       - name: Instalar dependencias de compilacion
         run: |
-          set -eo pipefail
-          sudo apt-get update 2>&1 | tail -3
+          set -e
+          sudo apt-get update 2>&1 | tail -3 | tee -a ci-kernel.log
           sudo apt-get install -y build-essential libncurses-dev bison flex \
-            libssl-dev libelf-dev bc dwarves fakeroot curl cpio kmod zstd 2>&1 | tail -5
+            libssl-dev libelf-dev bc dwarves fakeroot curl cpio kmod zstd 2>&1 | tail -5 | tee -a ci-kernel.log
 
       - name: Descargar fuente del kernel 6.6 LTS
         run: |
-          set -eo pipefail
-          # /mnt no es escribible por el usuario runner: usamos $RUNNER_TEMP.
-          KDIR="$RUNNER_TEMP"
-          echo "KDIR=$KDIR" >> "$GITHUB_ENV"
-          ver=$(curl -fsSL https://cdn.kernel.org/pub/linux/kernel/v6.x/ \
-                 | grep -o 'linux-6\.6\.[0-9]\+\.tar\.xz' | sort -V | tail -1) 2>&1 | tee -a ci-kernel.log
+          set -e
+          ver=""
+          listing="$(curl -fsSL --max-time 90 https://cdn.kernel.org/pub/linux/kernel/v6.x/ 2>>ci-kernel.log || true)"
+          ver="$(printf '%s' "$listing" | grep -o 'linux-6\.6\.[0-9]\+\.tar\.xz' | sort -V | tail -1 || true)"
+          if [ -z "$ver" ]; then
+            echo "Listado de kernel.org vacio o ilegible; pruebo versiones conocidas" | tee -a ci-kernel.log
+            for cand in 6.6.60 6.6.58 6.6.56 6.6.52 6.6.48 6.6.30; do
+              if curl -fsI --max-time 30 "https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-$cand.tar.xz" >/dev/null 2>&1; then
+                ver="linux-$cand.tar.xz"; break
+              fi
+            done
+          fi
           echo "Version elegida: $ver" | tee -a ci-kernel.log
           [ -n "$ver" ] || { echo "No se pudo determinar la version 6.6.x" | tee -a ci-kernel.log; exit 1; }
           echo "KVER=${ver%.tar.xz}" >> "$GITHUB_ENV"
-          curl -fL --retry 3 -o "$KDIR/$ver" "https://cdn.kernel.org/pub/linux/kernel/v6.x/$ver" 2>&1 | tee -a ci-kernel.log
-          tar -xf "$KDIR/$ver" -C "$KDIR"
-          ls -d "$KDIR"/linux-6.6.* | tee -a ci-kernel.log
+          curl -fL --retry 3 -o /mnt/"$ver" "https://cdn.kernel.org/pub/linux/kernel/v6.x/$ver" 2>>ci-kernel.log
+          tar -xf /mnt/"$ver" -C /mnt
+          ls -d /mnt/linux-6.6.* | tee -a ci-kernel.log
 
       - name: Configurar kernel a la medida E6400
         shell: bash
         run: |
-          set -eo pipefail
-          cd "$KDIR/$KVER"
+          set -e
+          cd /mnt/"$KVER"
           make x86_64_defconfig
           ./scripts/kconfig/merge_config.sh -m .config "$GITHUB_WORKSPACE/remaster/kernel-e6400.config"
           make olddefconfig
@@ -53,18 +59,19 @@ jobs:
           for opt in CONFIG_DRM_I915=y CONFIG_SQUASHFS=y CONFIG_PREEMPT=y \
                      CONFIG_E1000E=y CONFIG_ZRAM=m CONFIG_DEBUG_INFO_NONE=y; do
             k="${opt%%=*}"; v="${opt#*=}"
-            grep -q "^${k}=${v}$" .config || { echo "FALTA $opt"; grep "$k" .config || true; exit 1; }
+            grep -q "^${k}=${v}$" .config || { echo "FALTA $opt" | tee -a ci-kernel.log; grep "$k" .config || true; exit 1; }
           done
-          echo "Configuracion E6400 verificada."
+          echo "Configuracion E6400 verificada." | tee -a ci-kernel.log
 
       - name: Compilar kernel y paquetes .deb
         shell: bash
         run: |
-          set -eo pipefail
-          cd "$KDIR/$KVER"
+          set -e
+          cd /mnt/"$KVER"
           sudo make -j"$(nproc)" bindeb-pkg KDEB_PKGVERSION="${KVER#linux-}-blackhole1" \
-            2>&1 | tee ci-kernel.log | tail -40
-          ls -la "$KDIR"/*.deb
+            2>&1 | tee ci-kernel-build.log | tail -40
+          cat ci-kernel-build.log >> ci-kernel.log
+          ls -la /mnt/*.deb | tee -a ci-kernel.log
 
       - name: Publicar kernel como release
         if: success()
@@ -83,9 +90,9 @@ jobs:
             El kernel Live de la ISO sigue siendo el de Bodhi (pareja vmlinuz/initrd
             original); este kernel se usa en el sistema instalado.
           files: |
-            ${{ env.KDIR }}/linux-image-*.deb
-            ${{ env.KDIR }}/linux-headers-*.deb
-            ${{ env.KDIR }}/linux-libc-dev*.deb
+            /mnt/linux-image-*.deb
+            /mnt/linux-headers-*.deb
+            /mnt/linux-libc-dev*.deb
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -94,7 +101,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: build-kernel-log-r${{ github.run_number }}
-          path: ci-kernel.log
+          path: |
+            ci-kernel.log
+            ci-kernel-build.log
           if-no-files-found: ignore
 
       - name: Abrir issue si fallo (con cola del log)

@@ -38,28 +38,34 @@ jobs:
         run: |
           set -e
           UA="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+          # SourceForge bloquea con 403 las IPs de los runners (Azure). Usamos
+          # espejos de SourceForge y un fallback a archive.org. Descargamos a
+          # $RUNNER_TEMP (escritible por el runner) y luego la movemos a /mnt.
           urls=(
-            "https://downloads.sourceforge.net/project/bodhilinux/7.0.0/bodhi-7.0.0-64.iso"
-            "https://sourceforge.net/projects/bodhilinux/files/7.0.0/bodhi-7.0.0-64.iso/download"
-            "https://master.dl.sourceforge.net/project/bodhilinux/7.0.0/bodhi-7.0.0-64.iso?viasf=1"
+            "https://netcologne.dl.sourceforge.net/project/bodhilinux/7.0.0/bodhi-7.0.0-64.iso?viasf=1"
+            "https://deac-riga.dl.sourceforge.net/project/bodhilinux/7.0.0/bodhi-7.0.0-64.iso?viasf=1"
+            "https://phoenixnap.dl.sourceforge.net/project/bodhilinux/7.0.0/bodhi-7.0.0-64.iso?viasf=1"
+            "https://astuteinternet.dl.sourceforge.net/project/bodhilinux/7.0.0/bodhi-7.0.0-64.iso?viasf=1"
+            "https://web.archive.org/web/2025id_/https://downloads.sourceforge.net/project/bodhilinux/7.0.0/bodhi-7.0.0-64.iso"
           )
           ok=0
           for u in "${urls[@]}"; do
-            for i in 1 2 3; do
+            for i in 1 2; do
               echo "== intento $i con $u ==" | tee -a ci.log
-              if curl -fL -A "$UA" --retry 2 --connect-timeout 25 -o /mnt/bodhi-7.0.0-64.iso "$u" 2>>ci.log; then
-                size=$(stat -c%s /mnt/bodhi-7.0.0-64.iso 2>/dev/null || echo 0)
+              if curl -fL -A "$UA" --retry 2 --connect-timeout 25 -o "$RUNNER_TEMP/bodhi-7.0.0-64.iso" "$u" 2>>ci.log; then
+                size=$(stat -c%s "$RUNNER_TEMP/bodhi-7.0.0-64.iso" 2>/dev/null || echo 0)
                 echo "tamano descargado: $size bytes" | tee -a ci.log
                 if [ "$size" -gt 1000000000 ]; then ok=1; break 2; fi
                 echo "archivo demasiado pequeno (probable pagina HTML); reintento" | tee -a ci.log
               else
                 echo "curl fallo (codigo $?)" | tee -a ci.log
               fi
-              rm -f /mnt/bodhi-7.0.0-64.iso
+              rm -f "$RUNNER_TEMP/bodhi-7.0.0-64.iso"
               sleep 5
             done
           done
           [ "$ok" = 1 ] || { echo "No se pudo descargar la ISO base" | tee -a ci.log; exit 1; }
+          sudo mv -f "$RUNNER_TEMP/bodhi-7.0.0-64.iso" /mnt/bodhi-7.0.0-64.iso
           ls -la /mnt/bodhi-7.0.0-64.iso | tee -a ci.log
           xorriso -indev /mnt/bodhi-7.0.0-64.iso -ls /casper 2>&1 | head -20 | tee -a ci.log
           xorriso -indev /mnt/bodhi-7.0.0-64.iso -ls / 2>&1 | head -30 | tee -a ci.log

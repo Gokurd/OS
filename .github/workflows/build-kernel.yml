@@ -21,28 +21,31 @@ jobs:
 
       - name: Instalar dependencias de compilacion
         run: |
-          set -e
+          set -eo pipefail
           sudo apt-get update 2>&1 | tail -3
           sudo apt-get install -y build-essential libncurses-dev bison flex \
             libssl-dev libelf-dev bc dwarves fakeroot curl cpio kmod zstd 2>&1 | tail -5
 
       - name: Descargar fuente del kernel 6.6 LTS
         run: |
-          set -e
+          set -eo pipefail
+          # /mnt no es escribible por el usuario runner: usamos $RUNNER_TEMP.
+          KDIR="$RUNNER_TEMP"
+          echo "KDIR=$KDIR" >> "$GITHUB_ENV"
           ver=$(curl -fsSL https://cdn.kernel.org/pub/linux/kernel/v6.x/ \
-                 | grep -o 'linux-6\.6\.[0-9]\+\.tar\.xz' | sort -V | tail -1)
-          echo "Version elegida: $ver"
-          [ -n "$ver" ] || { echo "No se pudo determinar la version 6.6.x"; exit 1; }
+                 | grep -o 'linux-6\.6\.[0-9]\+\.tar\.xz' | sort -V | tail -1) 2>&1 | tee -a ci-kernel.log
+          echo "Version elegida: $ver" | tee -a ci-kernel.log
+          [ -n "$ver" ] || { echo "No se pudo determinar la version 6.6.x" | tee -a ci-kernel.log; exit 1; }
           echo "KVER=${ver%.tar.xz}" >> "$GITHUB_ENV"
-          curl -fL --retry 3 -o /mnt/"$ver" "https://cdn.kernel.org/pub/linux/kernel/v6.x/$ver"
-          tar -xf /mnt/"$ver" -C /mnt
-          ls -d /mnt/linux-6.6.*
+          curl -fL --retry 3 -o "$KDIR/$ver" "https://cdn.kernel.org/pub/linux/kernel/v6.x/$ver" 2>&1 | tee -a ci-kernel.log
+          tar -xf "$KDIR/$ver" -C "$KDIR"
+          ls -d "$KDIR"/linux-6.6.* | tee -a ci-kernel.log
 
       - name: Configurar kernel a la medida E6400
         shell: bash
         run: |
-          set -e
-          cd /mnt/"$KVER"
+          set -eo pipefail
+          cd "$KDIR/$KVER"
           make x86_64_defconfig
           ./scripts/kconfig/merge_config.sh -m .config "$GITHUB_WORKSPACE/remaster/kernel-e6400.config"
           make olddefconfig
@@ -57,11 +60,11 @@ jobs:
       - name: Compilar kernel y paquetes .deb
         shell: bash
         run: |
-          set -e
-          cd /mnt/"$KVER"
+          set -eo pipefail
+          cd "$KDIR/$KVER"
           sudo make -j"$(nproc)" bindeb-pkg KDEB_PKGVERSION="${KVER#linux-}-blackhole1" \
             2>&1 | tee ci-kernel.log | tail -40
-          ls -la /mnt/*.deb
+          ls -la "$KDIR"/*.deb
 
       - name: Publicar kernel como release
         if: success()
@@ -80,9 +83,9 @@ jobs:
             El kernel Live de la ISO sigue siendo el de Bodhi (pareja vmlinuz/initrd
             original); este kernel se usa en el sistema instalado.
           files: |
-            /mnt/linux-image-*.deb
-            /mnt/linux-headers-*.deb
-            /mnt/linux-libc-dev*.deb
+            ${{ env.KDIR }}/linux-image-*.deb
+            ${{ env.KDIR }}/linux-headers-*.deb
+            ${{ env.KDIR }}/linux-libc-dev*.deb
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

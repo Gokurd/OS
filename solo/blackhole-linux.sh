@@ -1791,46 +1791,107 @@ README
 }
 
 repack_iso() {
-    step "Reconstruyendo ISO (conservando registros de arranque originales)"
+    step "Reconstruyendo ISO (rebuild completo con El Torito replicado)"
     [[ "$BH_FORCE" = 1 || ! -e "$BH_OUTPUT" ]] || die "La salida ya existe: $BH_OUTPUT (usa --force)."
     mkdir -p "$(dirname "$BH_OUTPUT")"
     ISO_TMP="${BH_OUTPUT}.partial.$$"
     [[ ! -e "$ISO_TMP" ]] || die "Ya existe el temporal de salida: $ISO_TMP"
     write_iso_readme
 
-    # Construir lista de -map: squashfs + manifiestos + readme + árbol de arranque modificado
-    local maps=(
-        -map "$BH_WORK/filesystem.squashfs" /casper/filesystem.squashfs
-        -map "$BH_WORK/filesystem.manifest" /casper/filesystem.manifest
-        -map "$BH_WORK/filesystem.manifest-desktop" /casper/filesystem.manifest-desktop
-        -map "$BH_WORK/filesystem.size" /casper/filesystem.size
-        -map "$BH_WORK/README-BLACKHOLE.txt" /README-BLACKHOLE.txt
-    )
-    # Mapear árbol de arranque modificado (isolinux, boot, EFI, syslinux)
+    # NOTA: "-boot_image any replay" NO sirve aquí: al reemplazar el squashfs
+    # cambia el layout y el MBR isohybrid del original queda referenciando
+    # datos fuera del nuevo ISO ("Cannot refer by isohybrid MBR to data
+    # outside of ISO 9660 filesystem"). Método correcto: stage del árbol raíz
+    # original + reconstrucción con xorriso -as mkisofs usando las opciones de
+    # arranque que el propio xorriso reporta de la ISO base.
+    step "Stage del árbol raíz original (conserva vmlinuz/initrd/.disk)"
+    rm -rf "$BH_WORK/iso-stage"
+    mkdir -p "$BH_WORK/iso-stage"
+    xorriso -osirrox on -indev "$BH_BASE_ISO" -extract / "$BH_WORK/iso-stage" >>"$LOG" 2>&1 \
+        || die "No pude extraer el árbol raíz de la ISO base."
+    cp -f "$BH_WORK/filesystem.squashfs" "$BH_WORK/iso-stage/casper/filesystem.squashfs"
+    cp -f "$BH_WORK/filesystem.manifest" "$BH_WORK/iso-stage/casper/filesystem.manifest"
+    cp -f "$BH_WORK/filesystem.manifest-desktop" "$BH_WORK/iso-stage/casper/filesystem.manifest-desktop"
+    cp -f "$BH_WORK/filesystem.size" "$BH_WORK/iso-stage/casper/filesystem.size"
+    cp -f "$BH_WORK/README-BLACKHOLE.txt" "$BH_WORK/iso-stage/README-BLACKHOLE.txt"
+    # Árbol de arranque personalizado encima del original
     local d
     for d in isolinux boot EFI syslinux; do
         if [[ -d "$BH_WORK/boot-tree/$d" && -n "$(ls -A "$BH_WORK/boot-tree/$d" 2>/dev/null)" ]]; then
-            maps+=(-map "$BH_WORK/boot-tree/$d" "/$d")
+            rm -rf "$BH_WORK/iso-stage/$d"
+            cp -a "$BH_WORK/boot-tree/$d" "$BH_WORK/iso-stage/"
         fi
     done
-    # Se conserva intacta la pareja vmlinuz/initrd de la ISO original.
-    # El initramfs del sistema instalado se actualiza desde blackhole-firstboot.
+    [[ -s "$BH_WORK/iso-stage/casper/filesystem.squashfs" ]] || die "Falta el squashfs en el stage de la ISO."
 
-    xorriso -indev "$BH_BASE_ISO" -outdev "$ISO_TMP" -overwrite on \
-        "${maps[@]}" \
-        -boot_image any replay -compliance no_emul_toc -padding included -commit \
-        >>"$LOG" 2>&1 || {
-            # Diagnostico inmediato en el propio fallo (CI lo captura en el issue).
+    step "Replicando opciones de arranque de la ISO base"
+    local opts_file="$BH_WORK/mkisofs-opts.txt"
+    xorriso -indev "$BH_BASE_ISO" -report_el_torito as_mkisofs 2>>"$LOG" \
+        > "$opts_file" || die "No pude leer las opciones de arranque de la ISO base."
+    local mk_opts=()
+    eval "mk_opts=($(tr "\n" " " < "$opts_file"))" \
+        || die "Opciones de arranque ilegibles en $opts_file."
+    # Filtrar opciones no reproducibles (referencias al archivo original):
+    # --interval:*, -G/--embedded-boot (=área sistema isohybrid del original),
+    # y el token siguiente a -G si parece un intervalo/ruta de esa clase.
+    local arg in_g=0 final_opts=()
+    for arg in "${mk_opts[@]}"; do
+        if ((in_g)); then
+            in_g=0
+            case "$arg" in
+                --interval:*|*:imported_iso:*|*:local_fs:*) continue ;;
+                --) continue ;;
+                # un -G con ruta normal rara vez se emite; si acaso, se cae igual
+                *) warn "Token de área de sistema no reproducible omitido: $arg"; continue ;;
+            esac
+        fi
+        case "$arg" in
+            -G|--embedded-boot) in_g=1; continue ;;
+            --interval:*|*:imported_iso:*) continue ;;
+            *) final_opts+=("$arg") ;;
+        esac
+    done
+    # isohybrid: si el reporte apunta a un isohdpfx de otro host, reponerlo
+    local k has_isohybrid=0
+    for k in "${!final_opts[@]}"; do
+        if [[ "${final_opts[$k]}" == "-isohybrid-mbr" || "${final_opts[$k]}" == --isohybrid-mbr=* ]]; then
+            local nxt="${final_opts[$((k+1))]:-}"
+            if [[ "${final_opts[$k]}" == "-isohybrid-mbr" && ! -f "$nxt" ]]; then
+                if [[ -f /usr/lib/ISOLINUX/isohdpfx.bin ]]; then
+                    final_opts[$((k+1))]=/usr/lib/ISOLINUX/isohdpfx.bin
+                else
+                    warn "Sin isohdpfx.bin en el constructor (paquete isolinux): sin USB-BIOS híbrido."
+                    unset "final_opts[$k]" "final_opts[$((k+1))]"
+                fi
+            fi
+            has_isohybrid=1
+        fi
+    done
+    final_opts=("${final_opts[@]}")
+    if ((has_isohybrid == 0)); then
+        if [[ -f /usr/lib/ISOLINUX/isohdpfx.bin ]]; then
+            final_opts+=(-isohybrid-mbr /usr/lib/ISOLINUX/isohdpfx.bin)
+        else
+            warn "Sin isohdpfx.bin (paquete isolinux): la ISO arrancará desde CD/USB-UEFI/USB-BIOS solo con GRUB MBR propio si lo hado."
+            final_opts+=(--protective-msdos-label)
+        fi
+    fi
+
+    step "Escribiendo $BH_OUTPUT con xorriso -as mkisofs"
+    xorriso -as mkisofs -r -J -joliet-long "${final_opts[@]}" \
+        -output "$ISO_TMP" \
+        "$BH_WORK/iso-stage" >>"$LOG" 2>&1 || {
+            # Diagnóstico inmediato en el propio fallo (CI lo captura en el issue).
             tail -n 40 "$LOG" >&2 2>/dev/null || true
-            die "xorriso no pudo reconstruir la ISO; cola de $LOG arriba"
+            die "xorriso -as mkisofs no pudo reconstruir la ISO; cola de $LOG arriba"
         }
 
     [[ -s "$ISO_TMP" ]] || die "La ISO temporal no existe o está vacía."
     local final_boot_info
     final_boot_info="$(xorriso -indev "$ISO_TMP" -report_el_torito plain 2>>"$LOG")" \
         || die "ISO creada pero no se verificaron los registros de arranque."
-    grep -qi 'BIOS' <<< "$final_boot_info" \
-        || die "La ISO final no conserva arranque Legacy BIOS. No la uses en el E6400."
+    grep -qi "BIOS" <<< "$final_boot_info" \
+        || die "La ISO final no conserva arranque Legacy BIOS (El Torito). No la uses en el E6400."
     xorriso -osirrox on -indev "$ISO_TMP" \
         -extract /casper/filesystem.squashfs "$BH_WORK/verify-filesystem.squashfs" >>"$LOG" 2>&1
     cmp -s "$BH_WORK/filesystem.squashfs" "$BH_WORK/verify-filesystem.squashfs" \
@@ -1842,7 +1903,6 @@ repack_iso() {
     log "ISO creada: $BH_OUTPUT ($(du -h "$BH_OUTPUT" | awk '{print $1}'))"
     log "SHA256: ${BH_OUTPUT}.sha256"
 }
-
 finish() {
     printf '\n'
     log "BLACK HOLE LINUX v${BH_VERSION} (Matrix edition) terminado."

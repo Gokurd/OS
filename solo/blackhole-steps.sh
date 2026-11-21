@@ -31,7 +31,8 @@ printf -- '--- módulos gráficos ---\n'; lsmod | grep -E 'i915|drm' || echo 'si
 printf -- '--- módulos wifi ---\n'; lsmod | grep -E 'iwl|b43|wl|wlan' || echo 'sin módulos wifi'; printf '\n'
 printf -- '--- errores recientes (dmesg) ---\n'
 dmesg 2>/dev/null | grep -iE 'error|fail' | tail -n 20 || true; printf '\n'
-printf -- '--- RAM ---\n'; free -m; printf '\n'
+printf
+ -- '--- RAM ---\n'; free -m; printf '\n'
 printf -- '--- swap / zram ---\n'; swapon --show 2>/dev/null; zramctl 2>/dev/null || true; printf '\n'
 printf -- '--- cmdline de GRUB ---\n'
 grep GRUB_CMDLINE_LINUX_DEFAULT /etc/default/grub 2>/dev/null || true; printf '\n'
@@ -82,7 +83,8 @@ if [ ! -r "$HOME/.config/openbox/autostart" ]; then
     cp -rf /etc/skel/.config/openbox "$HOME/.config/" 2>/dev/null || true
 fi
 exec openbox-session
-OBXSESS
+OBX
+SESS
     chmod 755 "$ROOT/usr/local/bin/bh-openbox-session"
     cat > "$ROOT/usr/share/xsessions/openbox-blackhole.desktop" <<'XSFASE3'
 [Desktop Entry]
@@ -147,7 +149,8 @@ JGMFASE3
 
     # Aplicar el esqueleto a los usuarios que ya existan en el rootfs
     local d u
-    for d in "$ROOT"/home/*; do
+    for d
+ in "$ROOT"/home/*; do
         [[ -d "$d" ]] || continue
         u="$(basename "$d")"
         mkdir -p "$d/.config"
@@ -201,7 +204,8 @@ else
 fi
 
 section "GPU GMA 4500MHD"
-if lspci -nn 2>/dev/null | grep -qi '8086:2a42'; then
+if lspci -nn 2>/dev/null | grep -qi '808
+6:2a42'; then
     ok "GPU Intel 8086:2a42 detectada"
 else
     warn1 "GPU 8086:2a42 no visible en lspci (¿otro modelo?)"
@@ -260,7 +264,8 @@ install_software() {
     if [[ -f "$ROOT/etc/apt/sources.list" ]]; then
         sed -i -E 's/^(deb .* (main|restricted))( universe)?( multiverse)?$/\1 universe multiverse/' "$ROOT/etc/apt/sources.list" 2>/dev/null || true
     fi
-    chroot_run apt-get update || die "apt-get update falló; revisa red/repositorios en $LOG"
+    chroot_run apt-get update || die 
+"apt-get update falló; revisa red/repositorios en $LOG"
 
     # Base ligera + diagnóstico + gráficos Intel (S3TC ya va en Mesa de jammy)
     local base=(ca-certificates locales htop lm-sensors pciutils usbutils rfkill iproute2 \
@@ -294,7 +299,8 @@ install_software() {
     if [[ "$BH_DO_GAMES" = 1 ]]; then
         apt_install_group "emulación retro (RetroArch + núcleos)" \
             retroarch retroarch-assets libretro-core-info \
-            libretro-gambatte libretro-mgba libretro-snes9x dosbox scummvm fceux
+            libretro-gambatte libretro-mgba libre
+tro-snes9x dosbox scummvm fceux
     fi
 
     if [[ "$BH_DO_B43" = 1 ]]; then
@@ -343,6 +349,7 @@ install_software() {
     # Purga de bloat / telemetría
     apt_purge_group "telemetría y bloat" \
         whoopsie apport apport-symptoms ubuntu-report popularity-contest \
+
         modemmanager cups cups-bsd avahi-daemon saned
 
     write_target_config
@@ -386,18 +393,23 @@ make_manifests() {
 }
 
 make_squashfs() {
-    step "Creando squashfs (compresión: $BH_SQUASH_COMP, procs: $BH_MKFS_PROCS)"
+    step "Creando squashfs (compresión: $BH_SQUASH_COMP, 
+procs: $BH_MKFS_PROCS)"
     local comp_args=()
     case "$BH_SQUASH_COMP" in
         zstd) comp_args=(-comp zstd -b 1M -Xcompression-level "$BH_ZSTD_LEVEL") ;;
         xz)   comp_args=(-comp xz -b 256K -Xdict-size 256K) ;;
         gzip) comp_args=(-comp gzip -b 256K) ;;
     esac
-    mksquashfs "$ROOT" "$BH_WORK/filesystem.squashfs" \
+    if ! mksquashfs "$ROOT" "$BH_WORK/filesystem.squashfs" \
         "${comp_args[@]}" -processors "$BH_MKFS_PROCS" -noappend -no-progress \
-        >>"$LOG" 2>&1
+        >>"$LOG" 2>&1; then
+        tail -n 25 "$LOG" >&2 || true
+        die "mksquashfs falló; cola de $LOG arriba."
+    fi
     [[ -s "$BH_WORK/filesystem.squashfs" ]] || die "No se creó filesystem.squashfs"
-    unsquashfs -test -processors 1 "$BH_WORK/filesystem.squashfs" >>"$LOG" 2>&1 \
+    # Verbatim del remaster (probo OK en run 8 y r14): cabecera del superblock.
+    unsquashfs -s "$BH_WORK/filesystem.squashfs" >>"$LOG" 2>&1 \
         || die "Prueba de integridad del SquashFS falló."
     log "SquashFS íntegro: $(du -h "$BH_WORK/filesystem.squashfs" | awk '{print $1}')"
 }
@@ -426,7 +438,8 @@ repack_iso() {
     write_iso_readme
 
     # NOTA: "-boot_image any replay" NO sirve aquí: al reemplazar el squashfs
-    # cambia el layout y el MBR isohybrid del original queda referenciando
+    # cambia 
+el layout y el MBR isohybrid del original queda referenciando
     # datos fuera del nuevo ISO ("Cannot refer by isohybrid MBR to data
     # outside of ISO 9660 filesystem"). Método correcto: stage del árbol raíz
     # original + reconstrucción con xorriso -as mkisofs usando las opciones de
@@ -457,7 +470,8 @@ repack_iso() {
         > "$opts_file" || die "No pude leer las opciones de arranque de la ISO base."
     # Depuracion CI: el reporte crudo queda en el issue si algo falla mas adelante
     warn "Reporte El Torito crudo (as_mkisofs):"
-    sed 's/^/[reporte] /' "$opts_file" >&2 || true
+    sed 's/^/[reporte] /' "$opts_file" >&2 || tru
+e
     local -a mk_opts=()
     eval "mk_opts=($(tr '\n' ' ' < "$opts_file"))" \
         || die "Opciones de arranque ilegibles en $opts_file."
@@ -502,7 +516,8 @@ repack_iso() {
     for k in "${!final_opts[@]}"; do
         [[ "${final_opts[$k]}" == "-isohybrid-mbr" || "${final_opts[$k]}" == --isohybrid-mbr=* ]] || continue
         local nxt="${final_opts[$((k+1))]:-}"
-        if [[ "${final_opts[$k]}" == "-isohybrid-mbr" && ! -f "$nxt" ]]; then
+        if [[ "${final_opts[$k]}" == "-isohybrid-mbr" && ! -f "$nxt" ]]; the
+n
             if [[ -f /usr/lib/ISOLINUX/isohdpfx.bin ]]; then
                 final_opts[$((k+1))]=/usr/lib/ISOLINUX/isohdpfx.bin
             else
@@ -539,7 +554,8 @@ repack_iso() {
         fi
         xorriso -as mkisofs -r -J -joliet-long "${final_opts[@]}" \
             -output "$ISO_TMP" "$BH_WORK/iso-stage" >>"$LOG" 2>&1 \
-            || die "xorriso -as mkisofs no pudo reconstruir la ISO tras dos intentos; cola de $LOG arriba"
+            || die "xorriso -as mkisofs 
+no pudo reconstruir la ISO tras dos intentos; cola de $LOG arriba"
     fi
 
     [[ -s "$ISO_TMP" ]] || die "La ISO temporal no existe o está vacía."

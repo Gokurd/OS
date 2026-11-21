@@ -55,9 +55,11 @@ jobs:
       - name: Configurar kernel a la medida E6400
         shell: bash
         run: |
-          set -e
-          # Todo el paso va a ci-kernel.log (antes se perdia al fallar aqui).
-          exec > >(tee -a ci-kernel.log) 2>&1
+          set -euo pipefail
+          # Todo el paso va a ci-kernel.log en un bloque agrupado: el exec con
+          # process-substitution dejaba el tee vivo al cerrar y Actions marcaba
+          # el paso como fallido DESPUES de verificar (causa del fallo en 35s).
+          {
           cd /mnt/"$KVER"
           make x86_64_defconfig
           ./scripts/kconfig/merge_config.sh -m .config "$GITHUB_WORKSPACE/remaster/kernel-e6400.config"
@@ -81,6 +83,7 @@ jobs:
             ! grep -q '^CONFIG_DEBUG_INFO_BTF=y' .config || { echo "No se pudo desactivar BTF"; exit 1; }
           fi
           echo "Configuracion E6400 verificada."
+          } 2>&1 | tee -a ci-kernel.log
 
       - name: Compilar kernel y paquetes .deb
         shell: bash

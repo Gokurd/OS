@@ -455,75 +455,92 @@ repack_iso() {
     local opts_file="$BH_WORK/mkisofs-opts.txt"
     xorriso -indev "$BH_BASE_ISO" -report_el_torito as_mkisofs 2>>"$LOG" \
         > "$opts_file" || die "No pude leer las opciones de arranque de la ISO base."
-    local mk_opts=()
+    # Depuracion CI: el reporte crudo queda en el issue si algo falla mas adelante
+    warn "Reporte El Torito crudo (as_mkisofs):"
+    sed 's/^/[reporte] /' "$opts_file" >&2 || true
+    local -a mk_opts=()
     eval "mk_opts=($(tr '\n' ' ' < "$opts_file"))" \
         || die "Opciones de arranque ilegibles en $opts_file."
-    # Filtrar opciones no reproducibles (referencias al archivo original):
-    # --interval:*, -G/--embedded-boot (=área sistema isohybrid del original),
-    # y el token siguiente a -G si parece un intervalo/ruta de esa clase.
-    local arg prev='' in_g=0 final_opts=()
+    # El reporte suele empezar por "-as mkisofs": ya lo invocamos asi, se salta.
+    if [[ "${mk_opts[0]:-}" = "-as" && "${mk_opts[1]:-}" = "mkisofs" ]]; then
+        mk_opts=("${mk_opts[@]:2}")
+    fi
+    # Filtrar lo no reproducible: -G/--embedded-boot (=area de sistema del
+    # original) y su valor; -isohybrid-mbr y su valor (se repone con el MBR
+    # del constructor); opciones de intervalo que apuntan a la ISO vieja.
+    local -a final_opts=()
+    local arg expect_g=0
     for arg in "${mk_opts[@]}"; do
-        if ((in_g)); then
-            in_g=0
-            case "$arg" in
-                --interval:*|*:imported_iso:*|*:local_fs:*) continue ;;
-                --) continue ;;
-                # un -G con ruta normal rara vez se emite; si acaso, se cae igual
-                *) warn "Token de área de sistema no reproducible omitido: $arg"; continue ;;
-            esac
-        fi
-        # El reporte emite esta opción como DOS tokens (p. ej. "-partition_cyl_align on");
-        # en modo mkisofs el valor queda suelto y xorriso lo toma como origen ("OS/on").
-        if [[ "$arg" = on || "$arg" = off ]] && [[ -n "$prev" && "$prev" == -* ]]; then
-            local n=${#final_opts[@]}
-            if ((n > 0)) && [[ "${final_opts[$((n-1))]}" == "$prev" ]]; then
-                unset "final_opts[$((n-1))]"
-            fi
-            warn "Opción '$prev $arg' del reporte llega partida en dos tokens; par omitido."
-            prev=''
+        if ((expect_g)); then
+            expect_g=0
+            warn "Token de area de sistema no reproducible omitido: $arg"
             continue
         fi
-        prev="$arg"
         case "$arg" in
-            -G|--embedded-boot) in_g=1; continue ;;
-            --interval:*|*:imported_iso:*) continue ;;
+            -G|--embedded-boot|-isohybrid-mbr) expect_g=1 ;;
+            --interval:*|*:imported_iso:*) ;;
             *) final_opts+=("$arg") ;;
         esac
     done
-    # isohybrid: si el reporte apunta a un isohdpfx de otro host, reponerlo
+    # Red de seguridad: valores numericos huerfanos (p. ej. '16' de un
+    # partition_offset al que se le perdio la opcion) no pueden ser fuentes.
+    local i tok pre
+    for i in "${!final_opts[@]}"; do
+        tok="${final_opts[$i]}"
+        [[ "$tok" =~ ^[0-9]+$ ]] || continue
+        pre="${final_opts[$((i-1))]:-}"
+        case "$pre" in
+            -partition_offset|-partition_hd_cyl|-boot-load-size) ;;
+            *)
+                warn "Token numerico huerfano omitido: '$tok' (viene detras de '$pre')"
+                unset "final_opts[$i]" ;;
+        esac
+    done
+    final_opts=("${final_opts[@]}")
+    # isohybrid: reponer el MBR del constructor si el path del reporte no existe
     local k has_isohybrid=0
     for k in "${!final_opts[@]}"; do
-        if [[ "${final_opts[$k]}" == "-isohybrid-mbr" || "${final_opts[$k]}" == --isohybrid-mbr=* ]]; then
-            local nxt="${final_opts[$((k+1))]:-}"
-            if [[ "${final_opts[$k]}" == "-isohybrid-mbr" && ! -f "$nxt" ]]; then
-                if [[ -f /usr/lib/ISOLINUX/isohdpfx.bin ]]; then
-                    final_opts[$((k+1))]=/usr/lib/ISOLINUX/isohdpfx.bin
-                else
-                    warn "Sin isohdpfx.bin en el constructor (paquete isolinux): la ISO arrancará desde CD y USB-UEFI (sin USB-BIOS híbrido)."
-                    unset "final_opts[$k]" "final_opts[$((k+1))]"
-                fi
+        [[ "${final_opts[$k]}" == "-isohybrid-mbr" || "${final_opts[$k]}" == --isohybrid-mbr=* ]] || continue
+        local nxt="${final_opts[$((k+1))]:-}"
+        if [[ "${final_opts[$k]}" == "-isohybrid-mbr" && ! -f "$nxt" ]]; then
+            if [[ -f /usr/lib/ISOLINUX/isohdpfx.bin ]]; then
+                final_opts[$((k+1))]=/usr/lib/ISOLINUX/isohdpfx.bin
+            else
+                warn "Sin isohdpfx.bin en el constructor (paquete isolinux): la ISO arrancara desde CD y USB-UEFI (sin USB-BIOS hibrido)."
+                unset "final_opts[$k]" "final_opts[$((k+1))]"
             fi
-            has_isohybrid=1
         fi
+        has_isohybrid=1
     done
     final_opts=("${final_opts[@]}")
     if ((has_isohybrid == 0)); then
         if [[ -f /usr/lib/ISOLINUX/isohdpfx.bin ]]; then
             final_opts+=(-isohybrid-mbr /usr/lib/ISOLINUX/isohdpfx.bin)
         else
-            warn "Sin isohdpfx.bin (paquete isolinux): la ISO arrancará desde CD y USB-UEFI (sin USB-BIOS híbrido)."
+            warn "Sin isohdpfx.bin (paquete isolinux): la ISO arrancara desde CD y USB-UEFI (sin USB-BIOS hibrido)."
             final_opts+=(--protective-msdos-label)
         fi
     fi
 
     step "Escribiendo $BH_OUTPUT con xorriso -as mkisofs"
-    xorriso -as mkisofs -r -J -joliet-long "${final_opts[@]}" \
-        -output "$ISO_TMP" \
-        "$BH_WORK/iso-stage" >>"$LOG" 2>&1 || {
-            # Diagnóstico inmediato en el propio fallo (CI lo captura en el issue).
-            tail -n 40 "$LOG" >&2 2>/dev/null || true
-            die "xorriso -as mkisofs no pudo reconstruir la ISO; cola de $LOG arriba"
-        }
+    printf '%s\n' "${final_opts[@]}" | sed 's/^/[mkopt] /' >&2 || true
+    if ! xorriso -as mkisofs -r -J -joliet-long "${final_opts[@]}" \
+            -output "$ISO_TMP" "$BH_WORK/iso-stage" >>"$LOG" 2>&1; then
+        tail -n 25 "$LOG" >&2 || true
+        warn "Fallo con las opciones del reporte; reintento con opciones conocidas de Bodhi 7."
+        final_opts=(-V "Bodhi Live CD" -partition_cyl_align on -partition_offset 16 \
+            -isohybrid-mbr /usr/lib/ISOLINUX/isohdpfx.bin \
+            -b isolinux/isolinux.bin -c isolinux/boot.cat \
+            -no-emul-boot -boot-load-size 4 -boot-info-table)
+        if [[ ! -f /usr/lib/ISOLINUX/isohdpfx.bin ]]; then
+            warn "Sin isohdpfx.bin: arrancara desde CD y USB-UEFI (sin USB-BIOS hibrido)."
+            final_opts=(-V "Bodhi Live CD" -b isolinux/isolinux.bin -c isolinux/boot.cat \
+                -no-emul-boot -boot-load-size 4 -boot-info-table --protective-msdos-label)
+        fi
+        xorriso -as mkisofs -r -J -joliet-long "${final_opts[@]}" \
+            -output "$ISO_TMP" "$BH_WORK/iso-stage" >>"$LOG" 2>&1 \
+            || die "xorriso -as mkisofs no pudo reconstruir la ISO tras dos intentos; cola de $LOG arriba"
+    fi
 
     [[ -s "$ISO_TMP" ]] || die "La ISO temporal no existe o está vacía."
     local final_boot_info

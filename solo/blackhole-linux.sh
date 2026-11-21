@@ -1652,11 +1652,11 @@ install_software() {
     fi
 
     if [[ "$BH_DO_GAMES" = 1 ]]; then
+        # Nota: libretro-nestopia, libretro-stella y libretro-picodrive no
+        # existen en jammy; los núcleos presentes son gambatte (GB/GBC),
+        # mgba (GBA) y snes9x (SNES), más dosbox, scummvm y fceux independientes.
         apt_install_group "emulación retro (RetroArch + núcleos)" \
             retroarch retroarch-assets libretro-core-info \
-            # Nota: libretro-nestopia/stella/picodrive no existen en jammy.
-            # Núcleos presentes: gambatte (GB/GBC), mgba (GBA), snes9x (SNES),
-            # dosbox, scummvm y fceux (NES) como binarios independientes.
             libretro-gambatte libretro-mgba libretro-snes9x dosbox scummvm fceux
     fi
 

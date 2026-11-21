@@ -89,24 +89,28 @@ jobs:
         shell: bash
         run: |
           set -uo pipefail
-          # Instrumentacion: un fallo prematuro queda en ci-kernel.log
-          echo "=== inicio de compilacion: $(date) ===" | tee -a ci-kernel.log
-          echo "KVER=[${KVER:-VACIO}] cwd=$(pwd)" | tee -a ci-kernel.log
-          test -n "${KVER:-}" || { echo "KVER vacio" | tee -a ci-kernel.log; exit 3; }
-          test -d "/mnt/$KVER" || { echo "Falta /mnt/$KVER" | tee -a ci-kernel.log; exit 3; }
-          ls -d /mnt/linux-6.6.* 2>&1 | tee -a ci-kernel.log || true
-          cd "/mnt/$KVER"
+          # Log UNICO en el workspace: el run 9 demonstro que tras "cd /mnt/$KVER"
+          # los tee relativos iban a /mnt/linux-6.6.162/ci-kernel.log y el issue
+          # se generaba sin el error real de make. Ahora: make -C + rutas absolutas.
+          L="$GITHUB_WORKSPACE/ci-kernel.log"
+          OUT="$GITHUB_WORKSPACE/ci-make-stdout.log"
+          echo "=== inicio de compilacion: $(date) ===" | tee -a "$L"
+          echo "KVER=[${KVER:-VACIO}] cwd=$(pwd)" | tee -a "$L"
+          test -n "${KVER:-}" || { echo "KVER vacio" | tee -a "$L"; exit 3; }
+          test -d "/mnt/$KVER" || { echo "Falta /mnt/$KVER" | tee -a "$L"; exit 3; }
           set +e
-          sudo make -j"$(nproc)" bindeb-pkg KDEB_PKGVERSION="${KVER#linux-}-blackhole1" \
-            > ci-make-stdout.log 2>&1
+          sudo make -C "/mnt/$KVER" -j"$(nproc)" bindeb-pkg \
+            KDEB_PKGVERSION="${KVER#linux-}-blackhole1" \
+            > "$OUT" 2>&1
           rc=$?
           set -e
-          echo "make bindeb-pkg rc=$rc" | tee -a ci-kernel.log
-          cp -f ci-make-stdout.log ci-kernel-build.log 2>/dev/null || true
-          tail -n 40 ci-make-stdout.log >> ci-kernel.log 2>/dev/null || echo "(make sin salida)" >> ci-kernel.log
-          ls -la /mnt/*.deb | tee -a ci-kernel.log || echo "(sin .deb en /mnt)" | tee -a ci-kernel.log
-          echo "--- estado de archivos: ---" | tee -a ci-kernel.log
-          ls -la ci-kernel.log ci-kernel-build.log 2>&1 | tee -a ci-kernel.log || true
+          echo "make bindeb-pkg rc=$rc" | tee -a "$L"
+          cp -f "$OUT" "$GITHUB_WORKSPACE/ci-kernel-build.log" 2>/dev/null || true
+          echo "### cola de make (40) ###" >> "$L"
+          tail -n 40 "$OUT" >> "$L" 2>/dev/null || echo "(make sin salida)" >> "$L"
+          echo "### estado: ###" >> "$L"
+          ls -la "/mnt/$KVER"/../*blackhole1*.deb 2>&1 | tee -a "$L" || true
+          echo "make rc=$rc" | tee -a "$L"
           exit $rc
 
       - name: Publicar kernel como release

@@ -418,14 +418,13 @@ repack_iso() {
 }
 
 finish() {
-    step "Resumen del build"
-    local iso_size
-    iso_size="$(du -h "$BH_OUTPUT" 2>/dev/null | awk '{print $1}')"
-    log "ISO lista: $BH_OUTPUT ($iso_size)"
-    log "Checksum: ${BH_OUTPUT}.sha256"
-    if [[ "$BH_KEEP_WORK" = 1 ]]; then
-        info "Carpeta de trabajo conservada (BH_KEEP_WORK=1): $BH_WORK"
-        info "Registro completo del build: $LOG"
-    fi
-    log "Black Hole Linux v${BH_VERSION} terminado."
+    printf '\n'
+    log "BLACK HOLE LINUX v${BH_VERSION} (Matrix edition) terminado."
+    printf '  Base Bodhi: %s\n' "$BH_BASE_ISO"
+    printf '  ISO final:  %s\n' "$BH_OUTPUT"
+    printf '  SHA256:     %s.sha256\n' "$BH_OUTPUT"
+    printf '  Registro:   %s\n' "$LOG"
+    printf '\nPrueba primero la ISO en modo Live. No instales sin copia de seguridad.\n'
+    printf 'Tras instalar al disco: sudo blackhole firstboot && sudo blackhole upgrade\n'
+    printf 'En el E6400 conserva ACPI y las mitigaciones del kernel por defecto.\n'
 }

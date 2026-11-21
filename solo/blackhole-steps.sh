@@ -397,21 +397,20 @@ make_squashfs() {
         "${comp_args[@]}" -processors "$BH_MKFS_PROCS" -noappend -no-progress \
         >>"$LOG" 2>&1
     [[ -s "$BH_WORK/filesystem.squashfs" ]] || die "No se creó filesystem.squashfs"
-    unsquashfs -s "$BH_WORK/filesystem.squashfs" >>"$LOG" 2>&1 \
+    unsquashfs -test -processors 1 "$BH_WORK/filesystem.squashfs" >>"$LOG" 2>&1 \
         || die "Prueba de integridad del SquashFS falló."
     log "SquashFS íntegro: $(du -h "$BH_WORK/filesystem.squashfs" | awk '{print $1}')"
 }
 
 write_iso_readme() {
-    cat > "$BH_WORK/README-BLACKHOLE.txt" <<README
+        cat > "$BH_WORK/README-BLACKHOLE.txt" <<README
 ${BH_NAME} v${BH_VERSION} — ${BH_PROFILE} (Matrix edition)
 Base: Bodhi Linux 7.0.0 amd64 / Ubuntu 22.04 / Moksha
 Target: Dell Latitude E6400 · Core 2 Duo P8400 · GMA 4500MHD · 2 GiB DDR2
 Conserva kernel, initrd y registros de arranque de Bodhi. Incluye: zram LZ4,
 earlyoom, gamemode, RetroArch, herramientas de estudio/desarrollo ligeras,
 navegador opcional, tema Black Hole/Matrix (Plymouth, Conky, GTK Arc-Dark,
-iconos BlackHole, cmatrix), sesión Openbox BlackHole-Aero (FASE 3),
-autologin live (FASE 2) y verificador pre-vuelo (FASE 5).
+iconos BlackHole, cmatrix). ACPI y mitigaciones del kernel sin cambios forzados.
 Comandos: blackhole help | bh-audit | verificar-e6400 | bh-doctor | bh-perf game
 Tras instalar al disco: sudo blackhole firstboot && sudo blackhole upgrade
 No para juegos 3D modernos (GMA 4500MHD sin Vulkan).

@@ -24,7 +24,7 @@ jobs:
           set -e
           sudo apt-get update 2>&1 | tail -3 | tee -a ci-kernel.log
           sudo apt-get install -y build-essential libncurses-dev bison flex \
-            libssl-dev libelf-dev bc dwarves fakeroot curl cpio kmod zstd 2>&1 | tail -5 | tee -a ci-kernel.log
+            libssl-dev libelf-dev bc dwarves fakeroot curl cpio kmod zstd debhelper 2>&1 | tail -5 | tee -a ci-kernel.log
 
       - name: Descargar fuente del kernel 6.6 LTS
         run: |
@@ -171,3 +171,4 @@ jobs:
           } > issue-body.md
           gh issue create --title "build-kernel fallo en el run ${{ github.run_number }}" --body-file issue-body.md || true
 # (nota: retoque para forzar el disparo del workflow)
+

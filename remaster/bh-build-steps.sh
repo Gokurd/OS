@@ -335,7 +335,7 @@ repack_iso() {
     # Filtrar opciones no reproducibles (referencias al archivo original):
     # --interval:*, -G/--embedded-boot (=área sistema isohybrid del original),
     # y el token siguiente a -G si parece un intervalo/ruta de esa clase.
-    local arg in_g=0 final_opts=()
+    local arg prev='' in_g=0 final_opts=()
     for arg in "${mk_opts[@]}"; do
         if ((in_g)); then
             in_g=0
@@ -346,6 +346,18 @@ repack_iso() {
                 *) warn "Token de área de sistema no reproducible omitido: $arg"; continue ;;
             esac
         fi
+        # El reporte emite esta opción como DOS tokens (p. ej. "-partition_cyl_align on");
+        # en modo mkisofs el valor queda suelto y xorriso lo toma como origen ("OS/on").
+        if [[ "$arg" = on || "$arg" = off ]] && [[ -n "$prev" && "$prev" == -* ]]; then
+            local n=${#final_opts[@]}
+            if ((n > 0)) && [[ "${final_opts[$((n-1))]}" == "$prev" ]]; then
+                unset "final_opts[$((n-1))]"
+            fi
+            warn "Opción '$prev $arg' del reporte llega partida en dos tokens; par omitido."
+            prev=''
+            continue
+        fi
+        prev="$arg"
         case "$arg" in
             -G|--embedded-boot) in_g=1; continue ;;
             --interval:*|*:imported_iso:*) continue ;;

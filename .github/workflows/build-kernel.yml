@@ -85,8 +85,9 @@ jobs:
       - name: Compilar kernel y paquetes .deb
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
           cd /mnt/"$KVER"
+          echo "=== inicio de compilacion: $(date) ===" | tee -a ci-kernel.log
           sudo make -j"$(nproc)" bindeb-pkg KDEB_PKGVERSION="${KVER#linux-}-blackhole1" \
             2>&1 | tee ci-kernel-build.log | tail -40
           cat ci-kernel-build.log >> ci-kernel.log
@@ -136,6 +137,11 @@ jobs:
             echo "### ci-kernel.log (ultimas 150 lineas)"
             echo '```'
             tail -n 150 ci-kernel.log 2>/dev/null || echo "(sin ci-kernel.log: fallo antes de compilar)"
+            echo '```'
+            echo ""
+            echo "### ci-kernel-build.log (ultimas 60 lineas)"
+            echo '```'
+            tail -n 60 ci-kernel-build.log 2>/dev/null || echo "(sin ci-kernel-build.log)"
             echo '```'
           } > issue-body.md
           gh issue create --title "build-kernel fallo en el run ${{ github.run_number }}" --body-file issue-body.md || true

@@ -145,4 +145,4 @@ jobs:
             echo '```'
           } > issue-body.md
           gh issue create --title "build-kernel fallo en el run ${{ github.run_number }}" --body-file issue-body.md || true
-
+# (nota: retoque para forzar el disparo del workflow)

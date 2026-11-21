@@ -1872,7 +1872,7 @@ repack_iso() {
         if [[ -f /usr/lib/ISOLINUX/isohdpfx.bin ]]; then
             final_opts+=(-isohybrid-mbr /usr/lib/ISOLINUX/isohdpfx.bin)
         else
-            warn "Sin isohdpfx.bin (paquete isolinux): la ISO arrancará desde CD/USB-UEFI/USB-BIOS solo con GRUB MBR propio si lo hado."
+            warn "Sin isohdpfx.bin (paquete isolinux): la ISO arrancará desde CD y USB-UEFI (sin USB-BIOS híbrido)."
             final_opts+=(--protective-msdos-label)
         fi
     fi

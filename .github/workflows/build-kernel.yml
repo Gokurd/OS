@@ -88,13 +88,26 @@ jobs:
       - name: Compilar kernel y paquetes .deb
         shell: bash
         run: |
-          set -euo pipefail
-          cd /mnt/"$KVER"
+          set -uo pipefail
+          # Instrumentacion: un fallo prematuro queda en ci-kernel.log
           echo "=== inicio de compilacion: $(date) ===" | tee -a ci-kernel.log
+          echo "KVER=[${KVER:-VACIO}] cwd=$(pwd)" | tee -a ci-kernel.log
+          test -n "${KVER:-}" || { echo "KVER vacio" | tee -a ci-kernel.log; exit 3; }
+          test -d "/mnt/$KVER" || { echo "Falta /mnt/$KVER" | tee -a ci-kernel.log; exit 3; }
+          ls -d /mnt/linux-6.6.* 2>&1 | tee -a ci-kernel.log || true
+          cd "/mnt/$KVER"
+          set +e
           sudo make -j"$(nproc)" bindeb-pkg KDEB_PKGVERSION="${KVER#linux-}-blackhole1" \
-            2>&1 | tee ci-kernel-build.log | tail -40
-          cat ci-kernel-build.log >> ci-kernel.log
-          ls -la /mnt/*.deb | tee -a ci-kernel.log
+            > ci-make-stdout.log 2>&1
+          rc=$?
+          set -e
+          echo "make bindeb-pkg rc=$rc" | tee -a ci-kernel.log
+          cp -f ci-make-stdout.log ci-kernel-build.log 2>/dev/null || true
+          tail -n 40 ci-make-stdout.log >> ci-kernel.log 2>/dev/null || echo "(make sin salida)" >> ci-kernel.log
+          ls -la /mnt/*.deb | tee -a ci-kernel.log || echo "(sin .deb en /mnt)" | tee -a ci-kernel.log
+          echo "--- estado de archivos: ---" | tee -a ci-kernel.log
+          ls -la ci-kernel.log ci-kernel-build.log 2>&1 | tee -a ci-kernel.log || true
+          exit $rc
 
       - name: Publicar kernel como release
         if: success()
@@ -136,6 +149,11 @@ jobs:
         run: |
           {
             echo "Fallo el build-kernel (run ${{ github.run_number }}, commit ${{ github.sha }})."
+            echo ""
+            echo "### estado del workspace"
+            echo '```'
+            ls -la . /mnt 2>&1 | head -n 40 || true
+            echo '```'
             echo ""
             echo "### ci-kernel.log (ultimas 150 lineas)"
             echo '```'

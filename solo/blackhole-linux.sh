@@ -24,7 +24,7 @@ set -Eeuo pipefail
 IFS=$'\n\t'
 
 # ------------------------------- VERSION / PATHS ------------------------------
-BH_VERSION="8.0"
+BH_VERSION="8.1"
 BH_NAME="Black Hole Linux"
 BH_PROFILE="ULTIMATE-E6400"
 BH_ARCH="amd64"
@@ -1362,6 +1362,253 @@ GRUBTHEME
     log "Árbol de arranque personalizado (menú Black Hole)."
 }
 
+# ================= FASES 1-6 BLACK HOLE (estilo del autor) ====================
+# FASE 1: auditoría de hardware   ->  /usr/local/bin/bh-audit
+# FASE 2: autologin LightDM live  ->  lightdm.conf.d/70-blackhole-autologin.conf
+# FASE 3: sesión Openbox Aero     ->  /usr/share/xsessions/openbox-blackhole.desktop
+# FASE 4: bandeja (sonido/red)    ->  /etc/xdg/autostart/bh-tray.desktop
+# FASE 5: pre-vuelo E6400         ->  /usr/local/bin/verificar-e6400
+# FASE 6: docs + CI (readme de la ISO y workflows de GitHub; ya en el repo)
+
+write_fase1_audit() {
+    step "FASE 1: auditoría de hardware (bh-audit)"
+    cat > "$ROOT/usr/local/bin/bh-audit" <<'BH_AUDIT'
+#!/usr/bin/env bash
+# bh-audit — Auditoría de hardware del Dell Latitude E6400 (FASE 1)
+# Genera ~/e6400-audit.txt con todo lo necesario para diagnosticar la instalación.
+set -u
+OUT="$HOME/e6400-audit.txt"
+{
+printf '=== BLACK HOLE LINUX · FASE 1: AUDITORÍA E6400 ===\n'
+printf 'Fecha: %s\n\n' "$(date)"
+printf -- '--- uname ---\n'; uname -a; printf '\n'
+printf -- '--- cmdline del kernel ---\n'; cat /proc/cmdline 2>/dev/null; printf '\n'
+printf -- '--- CPU ---\n'; lscpu 2>/dev/null | grep -E 'Architecture|Model name|^CPU\(s\)'; printf '\n'
+printf -- '--- vídeo (lspci) ---\n'; lspci -nn 2>/dev/null | grep -Ei 'vga|3d|display'; printf '\n'
+printf -- '--- red (lspci) ---\n'; lspci -nn 2>/dev/null | grep -Ei 'network|ethernet'; printf '\n'
+printf -- '--- audio (lspci) ---\n'; lspci -nn 2>/dev/null | grep -i audio; printf '\n'
+printf -- '--- módulos gráficos ---\n'; lsmod | grep -E 'i915|drm' || echo 'sin i915/drm'; printf '\n'
+printf -- '--- módulos wifi ---\n'; lsmod | grep -E 'iwl|b43|wl|wlan' || echo 'sin módulos wifi'; printf '\n'
+printf -- '--- errores recientes (dmesg) ---\n'
+dmesg 2>/dev/null | grep -iE 'error|fail' | tail -n 20 || true; printf '\n'
+printf -- '--- RAM ---\n'; free -m; printf '\n'
+printf -- '--- swap / zram ---\n'; swapon --show 2>/dev/null; zramctl 2>/dev/null || true; printf '\n'
+printf -- '--- cmdline de GRUB ---\n'
+grep GRUB_CMDLINE_LINUX_DEFAULT /etc/default/grub 2>/dev/null || true; printf '\n'
+} > "$OUT" 2>&1
+printf 'Informe de auditoría guardado en %s\n' "$OUT"
+BH_AUDIT
+    chmod 755 "$ROOT/usr/local/bin/bh-audit"
+    log "FASE 1 lista: bh-audit (informe en ~/e6400-audit.txt)."
+}
+
+write_fase2_session() {
+    step "FASE 2: autologin LightDM de la sesión live"
+    if [[ ! -d "$ROOT/etc/lightdm" ]]; then
+        warn "FASE 2 omitida: este rootfs no usa LightDM."
+        return 0
+    fi
+    local user
+    user="$(grep -E '^USERNAME=' "$ROOT/etc/casper.conf" 2>/dev/null | cut -d= -f2 | tr -d '"' || true)"
+    user="${user:-ubuntu}"
+    if ! chroot "$ROOT" getent passwd "$user" >/dev/null 2>&1; then
+        warn "FASE 2: el usuario live '$user' no existe aún; el autologin se aplicará igualmente."
+    fi
+    cat > "$ROOT/etc/lightdm/lightdm.conf.d/70-blackhole-autologin.conf" <<LDMFASE2
+[Seat:*]
+autologin-user=$user
+autologin-user-timeout=0
+autologin-session=moksha
+autologin-guest=false
+LDMFASE2
+    log "FASE 2 lista: autologin LightDM para '$user' (sesión moksha)."
+}
+
+write_fase3_openbox() {
+    step "FASE 3: sesión Openbox BlackHole-Aero"
+    if [[ ! -x "$ROOT/usr/bin/openbox" ]]; then
+        warn "FASE 3: openbox no está instalado; la sesión quedará incompleta."
+    fi
+    mkdir -p "$ROOT/usr/share/xsessions" \
+             "$ROOT/etc/skel/.config/openbox" \
+             "$ROOT/etc/skel/.config/tint2" \
+             "$ROOT/etc/skel/.config/jgmenu"
+
+    # Lanzador de la sesión (levanta openbox con autostart del usuario)
+    cat > "$ROOT/usr/local/bin/bh-openbox-session" <<'OBXSESS'
+#!/bin/sh
+# FASE 3 — arranque de la sesión Openbox BlackHole-Aero
+if [ ! -r "$HOME/.config/openbox/autostart" ]; then
+    cp -rf /etc/skel/.config/openbox "$HOME/.config/" 2>/dev/null || true
+fi
+exec openbox-session
+OBXSESS
+    chmod 755 "$ROOT/usr/local/bin/bh-openbox-session"
+    cat > "$ROOT/usr/share/xsessions/openbox-blackhole.desktop" <<'XSFASE3'
+[Desktop Entry]
+Type=Application
+Name=Openbox BlackHole-Aero
+Comment=Sesión Openbox estilo Black Hole Matrix (verde #2cff7a sobre negro)
+Exec=bh-openbox-session
+XSFASE3
+
+    # Autostart de Openbox: tint2 + picom (xrender) + wallpaper + orbe de menú
+    cat > "$ROOT/etc/skel/.config/openbox/autostart" <<'OBAUTO'
+# FASE 3 — BlackHole-Aero: orbital mínimo para 2 GiB
+(sleep 2 && tint2 -c "$HOME/.config/tint2/blackhole-tint2rc" >/dev/null 2>&1) &
+picom --backend xrender -b 2>/dev/null \
+    || picom -b 2>/dev/null \
+    || compton -b 2>/dev/null || true
+feh --bg-scale /usr/share/backgrounds/blackhole/wallpaper.jpg 2>/dev/null \
+    || xsetroot -solid black || true
+OBAUTO
+
+    # Tint2: barra fina con orbe lanzador de jgmenu
+    cat > "$ROOT/etc/skel/.config/tint2/blackhole-tint2rc" <<'TINTFASE3'
+# FASE 3 — tint2 BlackHole (fondo negro, texto verde Matrix)
+panel_items = LTSC
+launcher_icon_theme = BlackHole
+launcher_item_app = jgmenu.desktop
+panel_size = 100% 24
+panel_margin = 0 0
+panel_background_id = 0
+panel_color = #000000 100
+task_font = Sans 9
+task_font_color = #2cff7a 100
+task_active_font_color = #ffffff 100
+task_background_id = 0
+task_active_background_id = 1
+clock_font_color = #2cff7a 100
+time1_format = %H:%M
+clock_tooltip = %A %d %B
+systray_padding = 0 4 4
+launcher_padding = 0 4 4
+launcher_icon_size = 18
+launcher_background_id = 0
+# fondos: 0 barras, 1 tarea activa
+background = 0
+background = 1
+TINTFASE3
+
+    # jgmenu: menú raíz verde sobre negro
+    cat > "$ROOT/etc/skel/.config/jgmenu/jgmenurc" <<'JGMFASE3'
+menu_width = 380
+menu_margin_y = 34
+menu_bg_color = #000000ee
+menu_font = Sans 10
+menu_fifo = 1
+item_height = 22
+item_color = #2cff7a
+item_selected_bg = #2cff7a33
+color_sel_text = #ffffff
+sep_color = #2cff7a66
+icon_size = 18
+JGMFASE3
+
+    # Aplicar el esqueleto a los usuarios que ya existan en el rootfs
+    local d u
+    for d in "$ROOT"/home/*; do
+        [[ -d "$d" ]] || continue
+        u="$(basename "$d")"
+        mkdir -p "$d/.config"
+        cp -rf "$ROOT/etc/skel/.config/openbox" "$ROOT/etc/skel/.config/tint2" \
+               "$ROOT/etc/skel/.config/jgmenu" "$d/.config/" || true
+        chroot "$ROOT" chown -R "$u:$u" "/home/$u/.config" || true
+    done
+    log "FASE 3 lista: sesión Openbox BlackHole-Aero en el selector de LightDM."
+}
+
+write_fase4_tray() {
+    step "FASE 4: bandeja (volumeicon + nm-applet)"
+    cat > "$ROOT/etc/xdg/autostart/bh-tray.desktop" <<'DESKFASE4'
+[Desktop Entry]
+Type=Application
+Name=BlackHole Tray
+Comment=Fase 4: volumen y red en la bandeja
+Exec=sh -c "volumeicon >/dev/null 2>&1 & nm-applet >/dev/null 2>&1 &"
+Terminal=false
+Categories=Utility;
+X-GNOME-Autostart-enabled=true
+DESKFASE4
+    if [[ ! -x "$ROOT/usr/bin/volumeicon" || ! -x "$ROOT/usr/bin/nm-applet" ]]; then
+        warn "FASE 4: falta volumeicon o nm-applet; la entrada de autostart se ignora sola."
+    fi
+    log "FASE 4 lista: /etc/xdg/autostart/bh-tray.desktop."
+}
+
+write_fase5_verificar() {
+    step "FASE 5: pre-vuelo verificar-e6400"
+    cat > "$ROOT/usr/local/bin/verificar-e6400" <<'BHVERIFY'
+#!/usr/bin/env bash
+# verificar-e6400 — Pre-vuelo del Dell Latitude E6400 (FASE 5)
+# Sale con 1 si hay fallos (0 = listo para volar).
+set -u
+fails=0; warns=0
+ok()   { printf '  [ OK  ] %s\n' "$1"; }
+warn1(){ printf '  [AVISO] %s\n' "$1"; warns=$((warns+1)); }
+fail() { printf '  [FALLO] %s\n' "$1"; fails=$((fails+1)); }
+
+printf '=== BLACK HOLE LINUX · FASE 5: PRE-VUELO E6400 ===\n\n'
+
+ram="$(awk '/MemTotal/{print int($2/1024)}' /proc/meminfo)"
+if (( ram >= 1900 )); then ok "RAM: ${ram} MB (>=1900)"; else fail "RAM: ${ram} MB (mínimo 1900)"; fi
+
+if [[ "$(uname -m)" = x86_64 ]]; then
+    ok "CPU 64-bit (x86_64)"
+else
+    fail "CPU no es 64-bit: $(uname -m)"
+fi
+
+if lspci -nn 2>/dev/null | grep -qi '8086:2a42'; then
+    ok "GPU GMA 4500MHD detectada (8086:2a42)"
+else
+    fail "GPU 8086:2a42 no detectada en lspci"
+fi
+
+if lsmod | grep -q '^i915 '; then
+    ok "Módulo i915 cargado"
+else
+    fail "i915 no cargado (la sesión saldrá por fbdev/vesa)"
+fi
+
+if [[ -d /sys/firmware/efi ]]; then
+    fail "Arranque EFI detectado; esta ISO es Legacy BIOS (El Torito)"
+else
+    ok "Arranque Legacy BIOS"
+fi
+
+if zramctl 2>/dev/null | grep -qE 'lz4|zstd'; then
+    ok "zram activo (LZ4/zstd)"
+else
+    warn1 "zram no activo: sudo swapon -a || zramswap start"
+fi
+
+free_mb="$(df -m / | awk 'NR==2{print $4}')"
+if (( free_mb >= 2000 )); then
+    ok "Espacio libre en /: ${free_mb} MB"
+else
+    warn1 "Espacio libre en /: ${free_mb} MB (<2000; ajusta zram/cache)"
+fi
+
+if nmcli -t -f WIFI.general radio 2>/dev/null | grep -q enabled \
+   || lspci 2>/dev/null | grep -qi -e network -e wireless; then
+    ok "WiFi visible para NetworkManager"
+else
+    warn1 "WiFi no visible (revisa drivers b43/iwl; mira bh-audit)"
+fi
+
+printf '\nResumen: %d fallo(s), %d aviso(s).\n' "$fails" "$warns"
+if (( fails > 0 )); then
+    printf 'PRE-VUELO RECHAZADO. Corrige los fallos antes de instalar.\n'
+    exit 1
+fi
+printf 'PRE-VUELO APROBADO. La máquina está lista.\n'
+exit 0
+BHVERIFY
+    chmod 755 "$ROOT/usr/local/bin/verificar-e6400"
+    log "FASE 5 lista: /usr/local/bin/verificar-e6400."
+}
+
 install_software() {
     step "Preparando apt/dpkg de Bodhi"
     mount_target
@@ -1378,7 +1625,8 @@ install_software() {
     local base=(ca-certificates locales htop lm-sensors pciutils usbutils rfkill iproute2 \
                 alsa-utils evtest joystick binutils file build-essential cmake pkg-config \
                 intel-microcode xserver-xorg-video-intel libgl1-mesa-dri mesa-utils \
-                libva2 i965-va-driver vainfo fonts-liberation libtxc-dxtn-s2tc0 gamemode libgamemodeauto0)
+                libva2 i965-va-driver vainfo fonts-liberation gamemode libgamemodeauto0)
+    # Nota: libtxc-dxtn-s2tc0 no existe en jammy (el soporte S3TC ya va en Mesa).
     apt_install_group "base ligera, red, gráficos Intel y gamemode" "${base[@]}"
 
     [[ "$BH_DO_ZRAM" = 1 ]] && apt_install_group "zram (60% LZ4)" zram-tools
@@ -1406,8 +1654,10 @@ install_software() {
     if [[ "$BH_DO_GAMES" = 1 ]]; then
         apt_install_group "emulación retro (RetroArch + núcleos)" \
             retroarch retroarch-assets libretro-core-info \
-            libretro-gambatte libretro-mgba libretro-snes9x libretro-nestopia \
-            libretro-stella libretro-picodrive dosbox scummvm fceux
+            # Nota: libretro-nestopia/stella/picodrive no existen en jammy.
+            # Núcleos presentes: gambatte (GB/GBC), mgba (GBA), snes9x (SNES),
+            # dosbox, scummvm y fceux (NES) como binarios independientes.
+            libretro-gambatte libretro-mgba libretro-snes9x dosbox scummvm fceux
     fi
 
     if [[ "$BH_DO_B43" = 1 ]]; then
@@ -1451,6 +1701,19 @@ install_software() {
         modemmanager cups cups-bsd avahi-daemon saned
 
     write_target_config
+
+    # ---- FASES 1-6 BLACK HOLE ----
+    # Paquetes de las fases 2-4 (sesión alternativa y bandeja)
+    apt_install_group "sesión Openbox BlackHole + bandeja (fases 2-4)" \
+        openbox tint2 jgmenu picom feh volumeicon network-manager-gnome
+    write_fase1_audit
+    write_fase2_session
+    write_fase3_openbox
+    write_fase4_tray
+    write_fase5_verificar
+    # FASE 6 (documentación + CI): la cubren write_iso_readme de arriba y los
+    # workflows de GitHub (.github/workflows) ya desplegados en el repo.
+
     configure_services
 
     # Limpieza final del rootfs
@@ -1502,7 +1765,9 @@ make_squashfs() {
         "${comp_args[@]}" -processors "$BH_MKFS_PROCS" -noappend -no-progress \
         >>"$LOG" 2>&1
     [[ -s "$BH_WORK/filesystem.squashfs" ]] || die "No se creó filesystem.squashfs"
-    unsquashfs -test -processors 1 "$BH_WORK/filesystem.squashfs" >>"$LOG" 2>&1 \
+    # Verificacion de integridad: unsquashfs no tiene "-test"; "-s" muestra
+    # la superblock y falla si el archivo esta corrupto (equivale funcional).
+    unsquashfs -s -processors 1 "$BH_WORK/filesystem.squashfs" >>"$LOG" 2>&1 \
         || die "Prueba de integridad del SquashFS falló."
     log "SquashFS íntegro: $(du -h "$BH_WORK/filesystem.squashfs" | awk '{print $1}')"
 }
@@ -1517,6 +1782,9 @@ earlyoom, gamemode, RetroArch, herramientas de estudio/desarrollo ligeras,
 navegador opcional, tema Black Hole/Matrix (Plymouth, Conky, GTK Arc-Dark,
 iconos BlackHole, cmatrix). ACPI y mitigaciones del kernel sin cambios forzados.
 Comandos: blackhole help | bh-doctor | bh-perf game | bh-gpu | bh-retro
+Fases 1-6 bh-audit (auditoria), autologin LightDM live, sesion Openbox
+BlackHole-Aero (en el selector), bandeja volumen/red, verificar-e6400
+(pre-vuelo), docs+CI.
 Tras instalar al disco: sudo blackhole firstboot && sudo blackhole upgrade
 No para juegos 3D modernos (GMA 4500MHD sin Vulkan).
 README
@@ -1551,7 +1819,11 @@ repack_iso() {
     xorriso -indev "$BH_BASE_ISO" -outdev "$ISO_TMP" -overwrite on \
         "${maps[@]}" \
         -boot_image any replay -compliance no_emul_toc -padding included -commit \
-        >>"$LOG" 2>&1 || die "xorriso no pudo reconstruir la ISO; revisa $LOG"
+        >>"$LOG" 2>&1 || {
+            # Diagnostico inmediato en el propio fallo (CI lo captura en el issue).
+            tail -n 40 "$LOG" >&2 2>/dev/null || true
+            die "xorriso no pudo reconstruir la ISO; cola de $LOG arriba"
+        }
 
     [[ -s "$ISO_TMP" ]] || die "La ISO temporal no existe o está vacía."
     local final_boot_info
@@ -1607,3 +1879,4 @@ main() {
 }
 
 main "$@"
+

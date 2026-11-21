@@ -321,7 +321,11 @@ repack_iso() {
     xorriso -indev "$BH_BASE_ISO" -outdev "$ISO_TMP" -overwrite on \
         "${maps[@]}" \
         -boot_image any replay -compliance no_emul_toc -padding included -commit \
-        >>"$LOG" 2>&1 || die "xorriso no pudo reconstruir la ISO; revisa $LOG"
+        >>"$LOG" 2>&1 || {
+            # Diagnostico inmediato en el propio fallo (CI lo captura en el issue).
+            tail -n 40 "$LOG" >&2 2>/dev/null || true
+            die "xorriso no pudo reconstruir la ISO; cola de $LOG arriba"
+        }
 
     [[ -s "$ISO_TMP" ]] || die "La ISO temporal no existe o está vacía."
     local final_boot_info
@@ -352,4 +356,5 @@ finish() {
     printf 'Tras instalar al disco: sudo blackhole firstboot && sudo blackhole upgrade\n'
     printf 'En el E6400 conserva ACPI y las mitigaciones del kernel por defecto.\n'
 }
+
 

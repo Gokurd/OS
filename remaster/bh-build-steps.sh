@@ -416,3 +416,16 @@ repack_iso() {
     log "ISO creada: $BH_OUTPUT ($(du -h "$BH_OUTPUT" | awk '{print $1}'))"
     log "SHA256: ${BH_OUTPUT}.sha256"
 }
+
+finish() {
+    step "Resumen del build"
+    local iso_size
+    iso_size="$(du -h "$BH_OUTPUT" 2>/dev/null | awk '{print $1}')"
+    log "ISO lista: $BH_OUTPUT ($iso_size)"
+    log "Checksum: ${BH_OUTPUT}.sha256"
+    if [[ "$BH_KEEP_WORK" = 1 ]]; then
+        info "Carpeta de trabajo conservada (BH_KEEP_WORK=1): $BH_WORK"
+        info "Registro completo del build: $LOG"
+    fi
+    log "Black Hole Linux v${BH_VERSION} terminado."
+}

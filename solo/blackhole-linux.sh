@@ -1362,189 +1362,47 @@ GRUBTHEME
     log "Árbol de arranque personalizado (menú Black Hole)."
 }
 
-# ================= FASES 1-6 BLACK HOLE (estilo del autor) ====================
-# FASE 1: auditoría de hardware   ->  /usr/local/bin/bh-audit
-# FASE 2: autologin LightDM live  ->  lightdm.conf.d/70-blackhole-autologin.conf
-# FASE 3: sesión Openbox Aero     ->  /usr/share/xsessions/openbox-blackhole.desktop
-# FASE 4: bandeja (sonido/red)    ->  /etc/xdg/autostart/bh-tray.desktop
-# FASE 5: pre-vuelo E6400         ->  /usr/local/bin/verificar-e6400
-# FASE 6: docs + CI (readme de la ISO y workflows de GitHub; ya en el repo)
+# ---------------------------------------------------------------------------
+# Las FASES 1-6 y los pasos de construccion (instalacion, squashfs, repack)
+# viven en blackhole-steps.sh (modulo, al estilo del remaster) para poder
+# verificar cada parte con bash -n por separado en CI.
+# ---------------------------------------------------------------------------
+source "$SCRIPT_DIR/blackhole-steps.sh"
 
-write_fase1_audit() {
-    step "FASE 1: auditoría de hardware (bh-audit)"
-    cat > "$ROOT/usr/local/bin/bh-audit" <<'BH_AUDIT'
-#!/usr/bin/env bash
-# bh-audit — Auditoría de hardware del Dell Latitude E6400 (FASE 1)
-# Genera ~/e6400-audit.txt con todo lo necesario para diagnosticar la instalación.
-set -u
-OUT="$HOME/e6400-audit.txt"
-{
-printf '=== BLACK HOLE LINUX · FASE 1: AUDITORÍA E6400 ===\n'
-printf 'Fecha: %s\n\n' "$(date)"
-printf -- '--- uname ---\n'; uname -a; printf '\n'
-printf -- '--- cmdline del kernel ---\n'; cat /proc/cmdline 2>/dev/null; printf '\n'
-printf -- '--- CPU ---\n'; lscpu 2>/dev/null | grep -E 'Architecture|Model name|^CPU\(s\)'; printf '\n'
-printf -- '--- vídeo (lspci) ---\n'; lspci -nn 2>/dev/null | grep -Ei 'vga|3d|display'; printf '\n'
-printf -- '--- red (lspci) ---\n'; lspci -nn 2>/dev/null | grep -Ei 'network|ethernet'; printf '\n'
-printf -- '--- audio (lspci) ---\n'; lspci -nn 2>/dev/null | grep -i audio; printf '\n'
-printf -- '--- módulos gráficos ---\n'; lsmod | grep -E 'i915|drm' || echo 'sin i915/drm'; printf '\n'
-printf -- '--- módulos wifi ---\n'; lsmod | grep -E 'iwl|b43|wl|wlan' || echo 'sin módulos wifi'; printf '\n'
-printf -- '--- errores recientes (dmesg) ---\n'
-dmesg 2>/dev/null | grep -iE 'error|fail' | tail -n 20 || true; printf '\n'
-printf -- '--- RAM ---\n'; free -m; printf '\n'
-printf -- '--- swap / zram ---\n'; swapon --show 2>/dev/null; zramctl 2>/dev/null || true; printf '\n'
-printf -- '--- cmdline de GRUB ---\n'
-grep GRUB_CMDLINE_LINUX_DEFAULT /etc/default/grub 2>/dev/null || true; printf '\n'
-} > "$OUT" 2>&1
-printf 'Informe de auditoría guardado en %s\n' "$OUT"
-BH_AUDIT
-    chmod 755 "$ROOT/usr/local/bin/bh-audit"
-    log "FASE 1 lista: bh-audit (informe en ~/e6400-audit.txt)."
+finish() {
+    step "Resumen del build"
+    local iso_size
+    iso_size="$(du -h "$BH_OUTPUT" 2>/dev/null | awk '{print $1}')"
+    log "ISO lista: $BH_OUTPUT ($iso_size)"
+    log "Checksum: ${BH_OUTPUT}.sha256"
+    if [[ "$BH_KEEP_WORK" = 1 ]]; then
+        info "Carpeta de trabajo conservada (BH_KEEP_WORK=1): $BH_WORK"
+        info "Registro completo del build: $LOG"
+    fi
+    log "Black Hole Linux v${BH_VERSION} terminado."
 }
 
-write_fase2_session() {
-    step "FASE 2: autologin LightDM de la sesión live"
-    if [[ ! -d "$ROOT/etc/lightdm" ]]; then
-        warn "FASE 2 omitida: este rootfs no usa LightDM."
-        return 0
+main() {
+    parse_args "$@"
+    safe_paths
+    check_host || die "El constructor no cumple los requisitos."
+    validate_base_iso
+    check_space
+    if [[ "$BH_DRY_RUN" = 1 ]]; then
+        log "Dry-run correcto. No se extrajo ni modificó nada."
+        printf 'ISO base: %s\nSalida: %s\nTrabajo: %s\nAssets: %s\n' "$BH_BASE_ISO" "$BH_OUTPUT" "$BH_WORK" "$BH_ASSETS"
+        exit 0
     fi
-    local user
-    user="$(grep -E '^USERNAME=' "$ROOT/etc/casper.conf" 2>/dev/null | cut -d= -f2 | tr -d '"' || true)"
-    user="${user:-ubuntu}"
-    if ! chroot "$ROOT" getent passwd "$user" >/dev/null 2>&1; then
-        warn "FASE 2: el usuario live '$user' no existe aún; el autologin se aplicará igualmente."
-    fi
-    cat > "$ROOT/etc/lightdm/lightdm.conf.d/70-blackhole-autologin.conf" <<LDMFASE2
-[Seat:*]
-autologin-user=$user
-autologin-user-timeout=0
-autologin-session=moksha
-autologin-guest=false
-LDMFASE2
-    log "FASE 2 lista: autologin LightDM para '$user' (sesión moksha)."
+    prepare_workspace
+    info "Perfil: ${BH_PROFILE} · ${BH_ARCH} · compresión=${BH_SQUASH_COMP} · zram=${BH_DO_ZRAM} · earlyoom=${BH_DO_EARLYOOM} · juegos=${BH_DO_GAMES} · tema=${BH_DO_THEME}"
+    extract_rootfs
+    extract_boot_tree
+    install_software
+    # No reemplazamos el initrd Live: debe coincidir exactamente con el kernel original.
+    make_manifests
+    make_squashfs
+    repack_iso
+    finish
 }
 
-write_fase3_openbox() {
-    step "FASE 3: sesión Openbox BlackHole-Aero"
-    if [[ ! -x "$ROOT/usr/bin/openbox" ]]; then
-        warn "FASE 3: openbox no está instalado; la sesión quedará incompleta."
-    fi
-    mkdir -p "$ROOT/usr/share/xsessions" \
-             "$ROOT/etc/skel/.config/openbox" \
-             "$ROOT/etc/skel/.config/tint2" \
-             "$ROOT/etc/skel/.config/jgmenu"
-
-    # Lanzador de la sesión (levanta openbox con autostart del usuario)
-    cat > "$ROOT/usr/local/bin/bh-openbox-session" <<'OBXSESS'
-#!/bin/sh
-# FASE 3 — arranque de la sesión Openbox BlackHole-Aero
-if [ ! -r "$HOME/.config/openbox/autostart" ]; then
-    cp -rf /etc/skel/.config/openbox "$HOME/.config/" 2>/dev/null || true
-fi
-exec openbox-session
-OBXSESS
-    chmod 755 "$ROOT/usr/local/bin/bh-openbox-session"
-    cat > "$ROOT/usr/share/xsessions/openbox-blackhole.desktop" <<'XSFASE3'
-[Desktop Entry]
-Type=Application
-Name=Openbox BlackHole-Aero
-Comment=Sesión Openbox estilo Black Hole Matrix (verde #2cff7a sobre negro)
-Exec=bh-openbox-session
-XSFASE3
-
-    # Autostart de Openbox: tint2 + picom (xrender) + wallpaper + orbe de menú
-    cat > "$ROOT/etc/skel/.config/openbox/autostart" <<'OBAUTO'
-# FASE 3 — BlackHole-Aero: orbital mínimo para 2 GiB
-(sleep 2 && tint2 -c "$HOME/.config/tint2/blackhole-tint2rc" >/dev/null 2>&1) &
-picom --backend xrender -b 2>/dev/null \
-    || picom -b 2>/dev/null \
-    || compton -b 2>/dev/null || true
-feh --bg-scale /usr/share/backgrounds/blackhole/wallpaper.jpg 2>/dev/null \
-    || xsetroot -solid black || true
-OBAUTO
-
-    # Tint2: barra fina con orbe lanzador de jgmenu
-    cat > "$ROOT/etc/skel/.config/tint2/blackhole-tint2rc" <<'TINTFASE3'
-# FASE 3 — tint2 BlackHole (fondo negro, texto verde Matrix)
-panel_items = LTSC
-launcher_icon_theme = BlackHole
-launcher_item_app = jgmenu.desktop
-panel_size = 100% 24
-panel_margin = 0 0
-panel_background_id = 0
-panel_color = #000000 100
-task_font = Sans 9
-task_font_color = #2cff7a 100
-task_active_font_color = #ffffff 100
-task_background_id = 0
-task_active_background_id = 1
-clock_font_color = #2cff7a 100
-time1_format = %H:%M
-clock_tooltip = %A %d %B
-systray_padding = 0 4 4
-launcher_padding = 0 4 4
-launcher_icon_size = 18
-launcher_background_id = 0
-# fondos: 0 barras, 1 tarea activa
-background = 0
-background = 1
-TINTFASE3
-
-    # jgmenu: menú raíz verde sobre negro
-    cat > "$ROOT/etc/skel/.config/jgmenu/jgmenurc" <<'JGMFASE3'
-menu_width = 380
-menu_margin_y = 34
-menu_bg_color = #000000ee
-menu_font = Sans 10
-menu_fifo = 1
-item_height = 22
-item_color = #2cff7a
-item_selected_bg = #2cff7a33
-color_sel_text = #ffffff
-sep_color = #2cff7a66
-icon_size = 18
-JGMFASE3
-
-    # Aplicar el esqueleto a los usuarios que ya existan en el rootfs
-    local d u
-    for d in "$ROOT"/home/*; do
-        [[ -d "$d" ]] || continue
-        u="$(basename "$d")"
-        mkdir -p "$d/.config"
-        cp -rf "$ROOT/etc/skel/.config/openbox" "$ROOT/etc/skel/.config/tint2" \
-               "$ROOT/etc/skel/.config/jgmenu" "$d/.config/" || true
-        chroot "$ROOT" chown -R "$u:$u" "/home/$u/.config" || true
-    done
-    log "FASE 3 lista: sesión Openbox BlackHole-Aero en el selector de LightDM."
-}
-
-write_fase4_tray() {
-    step "FASE 4: bandeja (volumeicon + nm-applet)"
-    cat > "$ROOT/etc/xdg/autostart/bh-tray.desktop" <<'DESKFASE4'
-[Desktop Entry]
-Type=Application
-Name=BlackHole Tray
-Comment=Fase 4: volumen y red en la bandeja
-Exec=sh -c "volumeicon >/dev/null 2>&1 & nm-applet >/dev/null 2>&1 &"
-Terminal=false
-Categories=Utility;
-X-GNOME-Autostart-enabled=true
-DESKFASE4
-    if [[ ! -x "$ROOT/usr/bin/volumeicon" || ! -x "$ROOT/usr/bin/nm-applet" ]]; then
-        warn "FASE 4: falta volumeicon o nm-applet; la entrada de autostart se ignora sola."
-    fi
-    log "FASE 4 lista: /etc/xdg/autostart/bh-tray.desktop."
-}
-
-write_fase5_verificar() {
-    step "FASE 5: pre-vuelo verificar-e6400"
-    cat > "$ROOT/usr/local/bin/verificar-e6400" <<'BHVERIFY'
-#!/usr/bin/env bash
-# verificar-e6400 — Pre-vuelo del Dell Latitude E6400 (FASE 5)
-# Sale con 1 si hay fallos (0 = listo para volar).
-set -u
-fails=0; warns=0
-ok()   { printf '  [ OK  ] %s\n' "$1"; }
-warn1(){ printf '  [AVISO] %s\n' "$1"; warns=$((warns+1)); }
-fail() { printf '  [FALLO] %s\n' "$1"; fails=$((fails+1)); }
-
+main "$@"

@@ -18,6 +18,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 180
+    env:
+      BH_BASE_SHA256: 0ddfc1d917b496fade58f141ef1b07ab798b41cc2d23c8e1b5ad9b288f27c538
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -38,7 +40,7 @@ jobs:
 
       - name: Descargar ISO base Bodhi 7.0.0 amd64
         run: |
-          set -e
+          set -euo pipefail
           UA="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
           urls=(
             "https://archive.org/download/bodhi-7.0.0-64/bodhi-7.0.0-64.iso"
@@ -64,15 +66,21 @@ jobs:
             done
           done
           [ "$ok" = 1 ] || { echo "No se pudo descargar la ISO base" | tee -a ci.log; exit 1; }
-          echo "79608e5bd2bc98c216563d81658a267bdb82a546b87497b449421811bb4f1dfa  $RUNNER_TEMP/bodhi-7.0.0-64.iso" | sha256sum -c - | tee -a ci.log
+          actual_sha256="$(sha256sum "$RUNNER_TEMP/bodhi-7.0.0-64.iso" | awk '{print $1}')"
+          echo "SHA-256 calculado: $actual_sha256" | tee -a ci.log
+          if [[ "$actual_sha256" != "$BH_BASE_SHA256" ]]; then
+            echo "SHA-256 esperado: $BH_BASE_SHA256; descargado: $actual_sha256" | tee -a ci.log
+            exit 1
+          fi
+          echo "$BH_BASE_SHA256  $RUNNER_TEMP/bodhi-7.0.0-64.iso" | sha256sum -c - | tee -a ci.log
           sudo mv -f "$RUNNER_TEMP/bodhi-7.0.0-64.iso" /mnt/bodhi-7.0.0-64.iso
           ls -la /mnt/bodhi-7.0.0-64.iso | tee -a ci.log
-          xorriso -indev /mnt/bodhi-7.0.0-64.iso -ls /casper 2>&1 | head -20 | tee -a ci.log
+          xorriso -indev /mnt/bodhi-7.0.0-64.iso -ls /casper 2>&1 | sed -n '1,20p' | tee -a ci.log
 
       - name: Construir ISO con el script original del autor
         run: |
           set -o pipefail
-          sudo env BH_BASE_SHA256=79608e5bd2bc98c216563d81658a267bdb82a546b87497b449421811bb4f1dfa \
+          sudo env BH_BASE_SHA256="$BH_BASE_SHA256" \
                    BH_WORK=/mnt/bh-work-solo \
                    BH_OUTPUT=/mnt/e6400-blackhole-solo-amd64.iso \
                    bash solo/blackhole-linux.sh \

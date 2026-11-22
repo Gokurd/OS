@@ -49,13 +49,15 @@ jobs:
           for u in "${urls[@]}"; do
             for i in 1 2; do
               echo "== intento $i con $u ==" | tee -a ci.log
-              if curl -fL -A "$UA" --retry 2 --connect-timeout 25 -o "$RUNNER_TEMP/bodhi-7.0.0-64.iso" "$u" 2>>ci.log; then
+              # Capa anti-goteo: aborta si 30 s no baja a 51200 B/s o si pasa de 900 s.
+              # Antes cada intento goteaba sin limite y colgaba horas el mirror lento.
+              if curl -fL -A "$UA" --retry 2 --connect-timeout 25 --max-time 900 --speed-limit 51200 --speed-time 30 -o "$RUNNER_TEMP/bodhi-7.0.0-64.iso" "$u" 2>>ci.log; then
                 size=$(stat -c%s "$RUNNER_TEMP/bodhi-7.0.0-64.iso" 2>/dev/null || echo 0)
                 echo "tamano descargado: $size bytes" | tee -a ci.log
                 if [ "$size" -gt 1000000000 ]; then ok=1; break 2; fi
                 echo "archivo demasiado pequeno (probable pagina HTML); reintento" | tee -a ci.log
               else
-                echo "curl fallo (codigo $?)" | tee -a ci.log
+                echo "curl fallo (codigo $?); pasando al siguiente intento/espejo" | tee -a ci.log
               fi
               rm -f "$RUNNER_TEMP/bodhi-7.0.0-64.iso"
               sleep 5

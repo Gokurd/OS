@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# BLACK HOLE LINUX v7.0 ULTIMATE-E6400 — Bodhi Linux remaster (Matrix edition)
+# BLACK HOLE LINUX v8.2 ULTIMATE-E6400 — Bodhi Linux remaster (Matrix edition)
 # Base: Bodhi Linux 7.0.0 amd64 ISO (Ubuntu 22.04 LTS + Moksha)
 # Design: coherent Ubuntu/glibc/apt/systemd remaster; no mixed Alpine/Void userspace.
 # Target: Dell Latitude E6400 · Core 2 Duo P8400 (Penryn) · GMA 4500MHD · 2 GiB DDR2
@@ -24,7 +24,7 @@ set -Eeuo pipefail
 IFS=$'\n\t'
 
 # ------------------------------- VERSION / PATHS ------------------------------
-BH_VERSION="8.1"
+BH_VERSION="8.2"
 BH_NAME="Black Hole Linux"
 BH_PROFILE="ULTIMATE-E6400"
 BH_ARCH="amd64"
@@ -107,9 +107,9 @@ GRUPOS DE SOFTWARE (desactivar con --no-...):
   --no-earlyoom           Sin protección OOM (NO recomendado con 2 GiB)
   --no-tlp                Sin TLP (gestión de energía/batería)
   --no-theme              Sin personalización Black Hole/Matrix (solo tuning)
-  --no-devtools            Sin herramientas de compilación/diagnóstico ELF
-  --with-wine              Añade Wine multiarch (consume bastante espacio/RAM)
-  --with-antimicro         Añade AntiMicro para mapear gamepads
+  --no-devtools           Sin herramientas de compilación/diagnóstico ELF
+  --with-wine             Añade Wine multiarch (consume bastante espacio/RAM)
+  --with-antimicro        Añade AntiMicro para mapear gamepads
   --extra-packages "A B"  Paquetes adicionales de los repos
 OTROS:
   --dry-run               Validar requisitos e ISO, sin construir
@@ -767,6 +767,9 @@ vm.vfs_cache_pressure = 100
 vm.dirty_background_ratio = 5
 vm.dirty_ratio = 10
 vm.page-cluster = 0
+# Latencia: evita paradas de rellenado de agua del kernel (juegos/ritmo de fps).
+vm.watermark_boost_factor = 0
+vm.watermark_scale_factor = 125
 SYSCTL
 
     # --- zram (LZ4, 60% de RAM) ---
@@ -1145,13 +1148,13 @@ set -Eeuo pipefail
 [[ $# -eq 1 && -f "$1" ]] || { echo 'Uso: bh-inspect archivo-ELF-o-binario' >&2; exit 2; }
 file "$1"
 if readelf -h "$1" >/dev/null 2>&1; then
-    echo '\n=== ELF header ==='
+    printf '\n=== ELF header ===\n'
     readelf -h "$1"
-    echo '\n=== Dependencias dinámicas ==='
+    printf '\n=== Dependencias dinámicas ===\n'
     readelf -d "$1" 2>/dev/null | grep -E 'NEEDED|RPATH|RUNPATH' || true
-    echo '\n=== Símbolos (muestra) ==='
+    printf '\n=== Símbolos (muestra) ===\n'
     nm -D "$1" 2>/dev/null | head -n 40 || true
-    echo '\n=== Desensamblado (primeras instrucciones) ==='
+    printf '\n=== Desensamblado (primeras instrucciones) ===\n'
     objdump -d -M intel "$1" 2>/dev/null | head -n 80 || true
 else
     echo 'No es un ELF reconocido por readelf; se muestra información de strings.'
@@ -1173,6 +1176,8 @@ case "$cmd" in
   firstboot) exec sudo /usr/local/sbin/blackhole-firstboot ;;
   upgrade)   sudo apt-get update && exec sudo apt-get upgrade -y ;;
   doctor)    exec bh-doctor ;;
+  audit)     exec bh-audit ;;
+  check)     exec verificar-e6400 ;;
   perf)      exec bh-perf "$@" ;;
   gpu)       exec bh-gpu "$@" ;;
   apps)      exec bh-apps "$@" ;;
@@ -1188,6 +1193,8 @@ Black Hole Linux — comando central
   blackhole firstboot   Aplicar GRUB/initramfs/fstab tras instalar
   blackhole upgrade     Actualizar paquetes
   blackhole doctor      Diagnóstico completo del sistema
+  blackhole audit       Auditoría de hardware (~/e6400-audit.txt)
+  blackhole check       Pre-vuelo E6400 (sale 1 si falta algo crítico)
   blackhole perf status|game|balanced  Gobernador CPU
   blackhole gpu  status|auto|uxa|sna   Driver Intel GMA
   blackhole apps ...    Gestión de paquetes (bh-apps)
@@ -1205,7 +1212,7 @@ MAIN
     chmod 755 "$ROOT/usr/local/bin/blackhole"
 
     cat > "$ROOT/usr/share/doc/blackhole/README-E6400.txt" <<'README'
-BLACK HOLE LINUX 8.0 — DELL LATITUDE E6400 (Matrix edition)
+BLACK HOLE LINUX 8.2 — DELL LATITUDE E6400 (Matrix edition)
 Base: Bodhi 7.0.0 amd64 / Ubuntu 22.04 / Moksha. Hardware: Core 2 Duo P8400,
 GMA 4500MHD, 2 GiB DDR2. BIOS A14 Legacy.
 PRIMER ARRANQUE TRAS INSTALAR AL DISCO:
@@ -1226,6 +1233,8 @@ TEMA:
   iconos BlackHole (con herencia Papirus-Dark). Wallpaper en /usr/share/backgrounds/blackhole/.
 DIAGNOSTICO:
   blackhole doctor
+  blackhole audit    (guarda ~/e6400-audit.txt)
+  blackhole check    (pre-vuelo: RAM, GPU, red, zram; sale 1 si falta algo crítico)
 RED:
   Ethernet queda disponible. Wi-Fi queda sin gestionar por NetworkManager.
   Para añadir firmware Broadcom durante la construcción: --with-b43-firmware.

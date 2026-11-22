@@ -79,7 +79,7 @@ write_fase3_openbox() {
 #!/bin/sh
 # FASE 3 — arranque de la sesión Openbox BlackHole-Aero
 if [ ! -r "$HOME/.config/openbox/autostart" ]; then
-    cp -rf /etc/skel/.config/openbox "$HOME/.config/" 2>/dev/null || true
+    cp -rf /etc/skel/.config/openbox /etc/skel/.config/tint2 /etc/skel/.config/jgmenu "$HOME/.config/" 2>/dev/null || true
 fi
 exec openbox-session
 OBXSESS
@@ -136,7 +136,6 @@ menu_width = 380
 menu_margin_y = 34
 menu_bg_color = #000000ee
 menu_font = Sans 10
-menu_fifo = 1
 item_height = 22
 item_color = #2cff7a
 item_selected_bg = #2cff7a33
@@ -407,7 +406,7 @@ make_squashfs() {
 }
 
 write_iso_readme() {
-        cat > "$BH_WORK/README-BLACKHOLE.txt" <<README
+    cat > "$BH_WORK/README-BLACKHOLE.txt" <<README
 ${BH_NAME} v${BH_VERSION} — ${BH_PROFILE} (Matrix edition)
 Base: Bodhi Linux 7.0.0 amd64 / Ubuntu 22.04 / Moksha
 Target: Dell Latitude E6400 · Core 2 Duo P8400 · GMA 4500MHD · 2 GiB DDR2

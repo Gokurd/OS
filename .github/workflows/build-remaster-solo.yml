@@ -85,9 +85,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: solo-${{ github.run_number }}
-          name: Black Hole Linux v8.1 ULTIMATE-E6400 (script original del autor, r${{ github.run_number }})
+          name: Black Hole Linux v8.2 ULTIMATE-E6400 (script original del autor, r${{ github.run_number }})
           body: |
-            ISO construida SOLO con el script original blackhole-linux-v8.0-e6400-matrix.sh
+            ISO construida con el script blackhole-linux-v8.0-e6400-matrix mejorado a v8.2
             (remaster de Bodhi Linux 7.0.0 amd64 para Dell Latitude E6400).
             Incluye FASES 1-6: auditoria (bh-audit), autologin, sesion Openbox
             BlackHole-Aero, bandeja y verificador pre-vuelo (verificar-e6400).

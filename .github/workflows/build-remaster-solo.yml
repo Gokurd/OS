@@ -17,7 +17,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 180
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -48,10 +48,11 @@ jobs:
           ok=0
           for u in "${urls[@]}"; do
             for i in 1 2; do
+              # Eliminar un parcial al cambiar de mirror, pero conservarlo para reanudar el mismo.
+              if [ "$i" -eq 1 ]; then rm -f "$RUNNER_TEMP/bodhi-7.0.0-64.iso"; fi
               echo "== intento $i con $u ==" | tee -a ci.log
-              # Capa anti-goteo: aborta si 30 s no baja a 51200 B/s o si pasa de 900 s.
-              # Antes cada intento goteaba sin limite y colgaba horas el mirror lento.
-              if curl -fL -A "$UA" --retry 2 --connect-timeout 25 --max-time 900 --speed-limit 51200 --speed-time 30 -o "$RUNNER_TEMP/bodhi-7.0.0-64.iso" "$u" 2>>ci.log; then
+              # Reanudar parciales; 2400 s admite una ISO de 1.29 GB a la velocidad observada.
+              if curl -fLsS -C - -A "$UA" --connect-timeout 25 --max-time 2400 --speed-limit 51200 --speed-time 30 -o "$RUNNER_TEMP/bodhi-7.0.0-64.iso" "$u" 2>>ci.log; then
                 size=$(stat -c%s "$RUNNER_TEMP/bodhi-7.0.0-64.iso" 2>/dev/null || echo 0)
                 echo "tamano descargado: $size bytes" | tee -a ci.log
                 if [ "$size" -gt 1000000000 ]; then ok=1; break 2; fi
@@ -59,11 +60,11 @@ jobs:
               else
                 echo "curl fallo (codigo $?); pasando al siguiente intento/espejo" | tee -a ci.log
               fi
-              rm -f "$RUNNER_TEMP/bodhi-7.0.0-64.iso"
               sleep 5
             done
           done
           [ "$ok" = 1 ] || { echo "No se pudo descargar la ISO base" | tee -a ci.log; exit 1; }
+          echo "79608e5bd2bc98c216563d81658a267bdb82a546b87497b449421811bb4f1dfa  $RUNNER_TEMP/bodhi-7.0.0-64.iso" | sha256sum -c - | tee -a ci.log
           sudo mv -f "$RUNNER_TEMP/bodhi-7.0.0-64.iso" /mnt/bodhi-7.0.0-64.iso
           ls -la /mnt/bodhi-7.0.0-64.iso | tee -a ci.log
           xorriso -indev /mnt/bodhi-7.0.0-64.iso -ls /casper 2>&1 | head -20 | tee -a ci.log
@@ -71,7 +72,8 @@ jobs:
       - name: Construir ISO con el script original del autor
         run: |
           set -o pipefail
-          sudo env BH_WORK=/mnt/bh-work-solo \
+          sudo env BH_BASE_SHA256=79608e5bd2bc98c216563d81658a267bdb82a546b87497b449421811bb4f1dfa \
+                   BH_WORK=/mnt/bh-work-solo \
                    BH_OUTPUT=/mnt/e6400-blackhole-solo-amd64.iso \
                    bash solo/blackhole-linux.sh \
                    --base /mnt/bodhi-7.0.0-64.iso 2>&1 | tee build-solo.log | tee -a ci.log | tail -50
@@ -116,14 +118,14 @@ jobs:
           {
             echo "Fallo el build-remaster-solo (run ${{ github.run_number }}, commit ${{ github.sha }})."
             echo ""
-            echo "### build-solo.log (ultimas 150 lineas)"
+            echo "### build-solo.log (ultimos 16000 bytes)"
             echo '```'
-            tail -n 150 build-solo.log 2>/dev/null || echo "(sin build-solo.log: fallo antes de construir)"
+            tail -c 16000 build-solo.log 2>/dev/null || echo "(sin build-solo.log: fallo antes de construir)"
             echo '```'
             echo ""
-            echo "### ci.log (ultimas 120 lineas)"
+            echo "### ci.log (ultimos 16000 bytes)"
             echo '```'
-            tail -n 120 ci.log 2>/dev/null || echo "(sin ci.log)"
+            tail -c 16000 ci.log 2>/dev/null || echo "(sin ci.log)"
             echo '```'
           } > issue-body.md
           gh issue create --title "build-remaster-solo fallo en el run ${{ github.run_number }}" --body-file issue-body.md || true
